@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Python-based Backend (Main NestJS App)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nest_backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      # Connect to containers by service name
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/nest_exam_db?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - exam-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: nest_postgres
+    restart: always
+    ports:
+      - "5432:5432" # Exposed to host for Prisma Studio / Local Dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nest_exam_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - exam-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: nest_redis
+    restart: always
+    ports:
+      - "6379:6379" # Exposed for local debugging
+    volumes:
+      - redis_data:/data
+    networks:
+      - exam-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  exam-network:
+    driver: bridge

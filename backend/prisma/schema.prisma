@@ -1,0 +1,297 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+  SUPER_ADMIN
+}
+
+model User {
+  id         String  @id @default(uuid())
+  email      String  @unique
+  password   String // Hashed password
+  name       String?
+  rollNumber String? @unique // Explicitly requested field
+  role       Role    @default(STUDENT)
+  isActive           Boolean @default(true)
+  mustChangePassword Boolean @default(true)
+
+  sessions  ExamSession[]
+  auditLogs AuditLog[]
+  feedbacks Feedback[]
+
+  // Course & Unit relations
+  courses Course[] @relation("CourseStudents")
+
+  // Ownership relations
+  createdExams   Exam[]   @relation("ExamCreator")
+  createdCourses Course[] @relation("CourseCreator")
+
+  unitSubmissions UnitSubmission[]
+  bookmarks       Bookmark[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orgId        String?
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+}
+
+model Exam {
+  id               String   @id @default(uuid())
+  slug             String   @unique
+  title            String
+  shortDescription String?
+  longDescription  String?
+  difficulty       String? // Beginner, Intermediate, Advanced
+  tags             String[] @default([])
+  duration         Int // Duration in minutes
+  totalMarks       Int?
+
+  // Access & Auth
+  testCode         String?
+  testCodeType     String? // Permanent, Rotating
+  rotationInterval Int?
+  inviteToken      String?
+  allowedIPs       String?
+
+  // Security
+  examMode       String? // Browser, App
+  aiProctoring   Boolean @default(false)
+  tabSwitchLimit Int?
+  strictness     String  @default("high") // high, medium, relaxed
+
+  // Scheduling
+  startTime DateTime?
+  endTime   DateTime?
+
+  questions Json // Stored as JSON: Assessment sections/questions
+  isActive  Boolean @default(true)
+
+  submissions ExamSession[]
+  feedbacks   Feedback[]
+
+  // Ownership
+  creatorId String?
+  creator   User?   @relation("ExamCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+
+  orgId        String?
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ExamSession {
+  id     String @id @default(uuid())
+  userId String
+  examId String
+
+  status    String    @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, TERMINATED
+  startTime DateTime  @default(now())
+  endTime   DateTime?
+
+  score   Float?
+  answers Json? // Final snapshot of answers: { "q1": "answer" }
+
+  // Security Context
+  ipAddress  String?
+  deviceId   String?
+  vmDetected Boolean @default(false)
+
+  violations Violation[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, examId]) // One active session per exam rule
+  @@index([userId])
+  @@index([examId])
+}
+
+model Violation {
+  id        String   @id @default(uuid())
+  sessionId String
+  type      String // TAB_SWITCH, VM_DETECTED, MUTIPLE_FACES
+  severity  String // WARNING, CRITICAL
+  message   String?
+  timestamp DateTime @default(now())
+  proofUrl  String? // URL to screenshot/log if applicable
+
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  details   Json?
+  ip        String?
+  timestamp DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model Feedback {
+  id     String @id @default(uuid())
+  userId String
+  examId String
+
+  rating    Int // 1-5
+  comment   String?
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+}
+
+model Course {
+  id               String   @id @default(uuid())
+  title            String
+  slug             String   @unique
+  shortDescription String?
+  longDescription  String?
+  difficulty       String? // Beginner, Intermediate, Advanced
+  tags             String[] @default([])
+  thumbnail        String?
+  isVisible        Boolean  @default(false)
+  status           String   @default("Draft") // Draft, Published, Archived
+
+  modules CourseModule[]
+  tests   CourseTest[]
+
+  // Implicit many-to-many
+  students User[] @relation("CourseStudents")
+
+  // Ownership
+  creatorId String?
+  creator   User?   @relation("CourseCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+
+  orgId        String?
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CourseModule {
+  id       String @id @default(uuid())
+  title    String
+  order    Int
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  units Unit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Unit {
+  id    String @id @default(uuid())
+  title String
+  type  String // MCQ, Coding, Web, Reading, Notebook
+  order Int
+
+  content Json // Stores all config: codingConfig, webConfig, mcqOptions, readingContent
+
+  moduleId String
+  module   CourseModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  submissions UnitSubmission[]
+  bookmarks   Bookmark[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CourseTest {
+  id        String @id @default(uuid())
+  slug      String @unique
+  title     String
+  questions Json // Stored as JSON: Assessment sections/questions
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UnitSubmission {
+  id     String @id @default(uuid())
+  userId String
+  unitId String
+
+  status  String // IN_PROGRESS, COMPLETED
+  content Json // User's code/answer
+  score   Float?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // @@unique([userId, unitId]) // Allow multiple attempts
+}
+
+model Organization {
+  id     String @id @default(uuid())
+  name   String
+  status String @default("Active") // Active, Suspended
+
+  // Branding & Configuration
+  logo   String?
+  domain String?
+
+  // Usage Limits
+  maxUsers      Int @default(100)
+  maxCourses    Int @default(5)
+  storageLimit  Int @default(1024) // in MB
+  examsPerMonth Int @default(50)
+
+  // New Fields for Super Admin Dashboard
+  plan         String  @default("Enterprise")
+  features     Json? // Stores enabled features { canCreateExams: true, etc. }
+  primaryColor String? @default("#fc751b")
+  contact      Json? // Stores address, city, country, phone, supportEmail, adminEmail
+
+  users   User[]
+  courses Course[]
+  exams   Exam[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bookmark {
+  id     String @id @default(uuid())
+  userId String
+  unitId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, unitId])
+  @@index([userId])
+  @@index([unitId])
+}
