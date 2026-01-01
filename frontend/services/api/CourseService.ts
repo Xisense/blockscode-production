@@ -51,7 +51,7 @@ export const CourseService = {
             const content = data.content || {};
             // Backend uses `problemStatement` and `options` for authored questions
             const description = content.problemStatement || content.description || '';
-            const mcqOptions = Array.isArray(content.options) ? content.options.map((o: any) => ({ id: o.id, text: o.text })) : (Array.isArray(content.mcqOptions) ? content.mcqOptions.map((o: any) => ({ id: o.id, text: o.text })) : []);
+            const mcqOptions = Array.isArray(content.options) ? content.options.map((o: any) => ({ id: o.id, text: o.text, isCorrect: o.isCorrect })) : (Array.isArray(content.mcqOptions) ? content.mcqOptions.map((o: any) => ({ id: o.id, text: o.text, isCorrect: o.isCorrect })) : []);
             // Reading config may be under different keys (readingConfig.contentBlocks, readingContent, blocks, etc.)
             const rawReading = content.readingConfig?.contentBlocks || content.readingContent || content.blocks || content.content?.blocks || content.contentBlocks || [];
 
@@ -126,7 +126,7 @@ export const CourseService = {
                 topic: content.topic || undefined,
                 order: data.order,
                 // Map coding config -> languageId, header, initialCode, footer, testCases
-                codingConfig: (function() {
+                codingConfig: (function () {
                     if (!content.codingConfig) return undefined;
                     // raw templates object may be under `templates` or be the object itself
                     const rawTemplates = content.codingConfig.templates || content.codingConfig.templatesMap || content.codingConfig;
@@ -162,7 +162,7 @@ export const CourseService = {
                         allowedLanguages
                     };
                 })(),
-                webConfig: (function() {
+                webConfig: (function () {
                     if (!content.webConfig) return undefined;
                     return {
                         initialHTML: content.webConfig.html || content.webConfig.initialHTML || '',
@@ -176,7 +176,7 @@ export const CourseService = {
                 readingContent,
                 // (debug) preserve raw reading for quick inspection if needed
                 rawReading,
-                notebookConfig: (function() {
+                notebookConfig: (function () {
                     if (!content.notebookConfig) return undefined;
                     return {
                         initialCode: content.notebookConfig.initialCode || content.notebookConfig.initial_code || '',

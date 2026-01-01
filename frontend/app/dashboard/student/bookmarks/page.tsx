@@ -35,10 +35,10 @@ export default function BookmarksPage() {
         }
     };
 
-    const handleRemoveBookmark = async (unitId: string) => {
+    const handleRemoveBookmark = async (bookmarkId: string) => {
         try {
-            await StudentService.removeBookmark(unitId);
-            setBookmarks(prev => prev.filter(b => b.unitId !== unitId));
+            await StudentService.removeBookmark(bookmarkId);
+            setBookmarks(prev => prev.filter(b => b.id !== bookmarkId));
         } catch (error) {
             console.error("Failed to remove bookmark:", error);
         }
@@ -120,7 +120,7 @@ export default function BookmarksPage() {
                                         </td>
                                         <td className="px-6 py-5 text-right">
                                             <button
-                                                onClick={() => handleRemoveBookmark(b.unitId)}
+                                                onClick={() => handleRemoveBookmark(b.id)}
                                                 className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                                 title="Remove Bookmark"
                                             >

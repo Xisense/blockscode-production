@@ -77,6 +77,11 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
                 isKicked.current = true;
                 socket.disconnect();
                 window.location.href = `/exam/login?slug=${examId}&error=suspended`;
+            } else if (msg.includes('EXAM_TERMINATED')) {
+                isKicked.current = true;
+                socket.disconnect();
+                // We use a custom query param handling for this in login page
+                window.location.href = `/exam/login?slug=${examId}&error=terminated`;
             } else {
                 toastError(msg || 'Connection Error');
             }

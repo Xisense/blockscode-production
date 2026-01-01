@@ -21,7 +21,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         // Real-time check if user is still active
         const user = await this.prisma.user.findUnique({
             where: { id: payload.sub },
-            select: { isActive: true, orgId: true, mustChangePassword: true }
+            select: {
+                isActive: true,
+                orgId: true,
+                mustChangePassword: true,
+                organization: {
+                    select: {
+                        features: true
+                    }
+                }
+            }
         });
 
         if (!user || user.isActive === false) {
@@ -33,6 +42,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             email: payload.email,
             role: payload.role,
             orgId: user.orgId,
+            features: user.organization?.features || {},
             mustChangePassword: user.mustChangePassword
         };
     }

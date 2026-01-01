@@ -231,8 +231,9 @@ export default function AdminSettingsView({ basePath = '/dashboard/admin', userR
                                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Official Support Email</label>
                                     <input
                                         type="email"
-                                        className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-600 outline-none"
+                                        className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-600 outline-none focus:border-[var(--brand)] transition-all shadow-inner"
                                         value={branding.email}
+                                        onChange={(e) => setBranding({ ...branding, email: e.target.value })}
                                     />
                                 </div>
                                 <div className="space-y-1.5">

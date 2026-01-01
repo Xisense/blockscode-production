@@ -506,6 +506,8 @@ export default function PublicExamPage() {
     // ... (useEffect hooks for focus monitoring could remain here or be moved to useElectronMonitoring if refactored further)
     // For now, keeping existing local focus logic but we could enhance it to call logEvent
     useEffect(() => {
+        if (isFeedbackMode || isSuccessMode) return;
+
         const onFocus = () => {
             setWindowFocus(prev => ({ ...prev, in: prev.in + 1 }));
             socketLogViolation('TAB_SWITCH_IN', 'Student switched back to exam tab');
@@ -521,7 +523,7 @@ export default function PublicExamPage() {
             window.removeEventListener("focus", onFocus);
             window.removeEventListener("blur", onBlur);
         };
-    }, [logEvent, socketLogViolation]);
+    }, [logEvent, socketLogViolation, isFeedbackMode, isSuccessMode]);
 
     const handleQuestionSelect = (sectionId: string, questionId: string | number, force = false) => {
         // Prevent selecting questions from locked or submitted sections (unless forced)

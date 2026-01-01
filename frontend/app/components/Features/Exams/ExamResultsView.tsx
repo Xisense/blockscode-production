@@ -1,13 +1,15 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import AlertModal from "@/app/components/Common/AlertModal";
 import {
     PieChart, Pie, Cell, ResponsiveContainer,
     BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid
 } from 'recharts';
+import { TeacherService } from "@/services/api/TeacherService";
 
 interface Result {
+    sessionId: string;
     rollNo: string;
     name: string;
     email: string;
@@ -17,7 +19,7 @@ interface Result {
     attempted: string;
     score: number;
     totalPossible: number;
-    status: "Passed" | "Failed";
+    status: "Passed" | "Failed" | string;
 }
 
 interface ExamResultsViewProps {
@@ -28,64 +30,112 @@ interface ExamResultsViewProps {
 }
 
 export default function ExamResultsView({ title = "Exam Analysis", examId, userRole = 'teacher', basePath }: ExamResultsViewProps) {
-    const [results, setResults] = useState<Result[]>([
-        { rollNo: "2211981482", name: "sneha", email: "sneha@gmail.com", section: "Section F", submittedAt: "Dec 19, 10:01 PM", timeTaken: "2 min", attempted: "15 Q", score: 12, totalPossible: 30, status: "Failed" },
-        { rollNo: "2211981485", name: "Amit Sharma", email: "amit@gmail.com", section: "Section A", submittedAt: "Dec 19, 10:15 PM", timeTaken: "45 min", attempted: "20 Q", score: 25, totalPossible: 30, status: "Passed" },
-        { rollNo: "2211981490", name: "Rahul Verma", email: "rahul@gmail.com", section: "Section C", submittedAt: "Dec 19, 10:30 PM", timeTaken: "30 min", attempted: "18 Q", score: 22, totalPossible: 30, status: "Passed" },
-    ]);
-
+    const [results, setResults] = useState<Result[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [isResultsPublished, setIsResultsPublished] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
 
-    // Dynamic Data for Charts
-    const passedCount = results.filter(r => r.status === "Passed").length;
-    const failedCount = results.filter(r => r.status === "Failed").length;
+    useEffect(() => {
+        async function loadResults() {
+            try {
+                setLoading(true);
+                const data = await TeacherService.getExamResults(examId);
+                if (data.results) {
+                    setResults(data.results);
+                    setIsResultsPublished(data.resultsPublished);
+                } else {
+                    setResults(data);
+                }
+            } catch (error) {
+                console.error("Failed to load results", error);
+            } finally {
+                setLoading(false);
+            }
+        }
+        loadResults();
+    }, [examId]);
 
-    const brandColor = '#fc751b'; // Global Brand Orange
+    const stats = useMemo(() => {
+        if (results.length === 0) return { avgScore: 0, avgTime: 0, passedCount: 0, failedCount: 0, distribution: [], highScore: 0 };
+
+        const passedCount = results.filter(r => r.status === "Passed").length;
+        const failedCount = results.filter(r => r.status === "Failed").length;
+
+        const totalScorePct = results.reduce((acc, curr) => acc + (curr.score / (curr.totalPossible || 1)), 0);
+        const avgScore = (totalScorePct / results.length) * 100;
+
+        const totalTime = results.reduce((acc, curr) => acc + (parseInt(curr.timeTaken) || 0), 0);
+        const avgTime = totalTime / results.length;
+
+        const highScore = Math.max(...results.map(r => (r.score / (r.totalPossible || 1)) * 100));
+
+        const distribution = [
+            { score: '0-25%', count: results.filter(r => (r.score / r.totalPossible) < 0.25).length },
+            { score: '25-50%', count: results.filter(r => (r.score / r.totalPossible) >= 0.25 && (r.score / r.totalPossible) < 0.5).length },
+            { score: '50-75%', count: results.filter(r => (r.score / r.totalPossible) >= 0.5 && (r.score / r.totalPossible) < 0.75).length },
+            { score: '75-100%', count: results.filter(r => (r.score / r.totalPossible) >= 0.75).length },
+        ];
+
+        return { avgScore, avgTime, passedCount, failedCount, distribution, highScore };
+    }, [results]);
+
+    const brandColor = '#fc751b';
     const brandLightColor = 'var(--brand-light)';
 
     const pieData = [
-        { name: 'Passed', value: passedCount, color: brandColor },
-        { name: 'Failed', value: failedCount, color: '#f43f5e' },
+        { name: 'Passed', value: stats.passedCount, color: brandColor },
+        { name: 'Failed', value: stats.failedCount, color: '#f43f5e' },
     ];
 
-    const distributionData = [
-        { score: '0-10', count: 1 },
-        { score: '10-20', count: 0 },
-        { score: '20-30', count: 2 },
-    ];
-
-    const handlePublish = () => {
+    const handlePublish = async () => {
         setIsPublishing(true);
-        setTimeout(() => {
-            setIsPublishing(false);
+        try {
+            await TeacherService.publishResults(examId);
+            setIsResultsPublished(true);
             setAlertConfig({
                 isOpen: true,
                 title: "Results Published",
                 message: "Exam results have been successfully shared with all students.",
                 type: "info"
             });
-        }, 1500);
+        } catch (error) {
+            console.error("Failed to publish results", error);
+            setAlertConfig({
+                isOpen: true,
+                title: "Publication Failed",
+                message: "There was an error publishing the results. Please try again.",
+                type: "danger"
+            });
+        } finally {
+            setIsPublishing(false);
+        }
     };
 
-    const updateScore = (rollNo: string, newScore: string) => {
-        const scoreVal = parseInt(newScore) || 0;
+    const updateScore = async (sessionId: string, newScore: string) => {
+        const scoreVal = parseFloat(newScore) || 0;
         setResults(prev => prev.map(r => {
-            if (r.rollNo === rollNo) {
+            if (r.sessionId === sessionId) {
                 const status = (scoreVal / r.totalPossible) >= 0.4 ? "Passed" : "Failed";
                 return { ...r, score: scoreVal, status };
             }
             return r;
         }));
+
+        try {
+            await TeacherService.updateSubmissionScore(examId, sessionId, scoreVal);
+        } catch (error) {
+            console.error("Failed to update score on server", error);
+        }
     };
 
     const backLink = basePath ? `${basePath}/exams` : (userRole === 'admin' ? "/dashboard/admin/exams" : "/dashboard/teacher/exams");
 
+    if (loading) return <div className="p-12 text-center font-black text-slate-300 uppercase tracking-widest animate-pulse">Loading Results...</div>;
+
     return (
         <div className="min-h-screen bg-[#F8FAFC]">
-
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-8 animate-fade-in">
-                {/* Compact Header */}
                 <div className="flex items-center justify-between mb-8">
                     <div>
                         <h1 className="text-2xl font-black text-slate-900 tracking-tight">{title}</h1>
@@ -99,17 +149,16 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                         </Link>
                         <button
                             onClick={handlePublish}
-                            className={`text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:scale-105 transition-all`}
-                            style={{ backgroundColor: brandColor, boxShadow: `0 10px 15px -3px ${brandColor}40` }}
+                            disabled={isPublishing || isResultsPublished}
+                            className={`text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg transition-all ${isResultsPublished ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+                            style={{ backgroundColor: isResultsPublished ? '#64748b' : brandColor, boxShadow: isResultsPublished ? 'none' : `0 10px 15px -3px ${brandColor}40` }}
                         >
-                            {isPublishing ? "Publishing..." : "Publish Results"}
+                            {isPublishing ? "Publishing..." : isResultsPublished ? "Results Published" : "Publish Results"}
                         </button>
                     </div>
                 </div>
 
-                {/* Insight Dashboard - Highly Compact */}
                 <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6 mb-10">
-                    {/* Score Distribution Pie */}
                     <div className="md:col-span-2 lg:col-span-2 bg-white rounded-[32px] border border-slate-100 p-6 shadow-sm flex flex-col">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pass/Fail Ratio</h3>
@@ -129,18 +178,26 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                             </div>
                         </div>
                         <div className="mt-4 flex justify-center gap-6">
-                            <MetricLabel color={brandColor} label="Pass" value={passedCount} />
-                            <MetricLabel color="#f43f5e" label="Fail" value={failedCount} />
+                            <MetricLabel color={brandColor} label="Pass" value={stats.passedCount} />
+                            <MetricLabel color="#f43f5e" label="Fail" value={stats.failedCount} />
                         </div>
                     </div>
 
-                    {/* Stats Tiles */}
                     <div className="lg:col-span-1 space-y-4">
-                        <CompactStatTile label="Avg Score" value="72%" sub="Industry: 65%" trend="up" />
-                        <CompactStatTile label="Time Taken" value="42m" sub="Expected: 35m" trend="down" />
+                        <CompactStatTile
+                            label="Avg Score"
+                            value={`${stats.avgScore.toFixed(0)}%`}
+                            sub={`High Score: ${stats.highScore.toFixed(0)}%`}
+                            trend={stats.avgScore > 60 ? "up" : "down"}
+                        />
+                        <CompactStatTile
+                            label="Time Taken"
+                            value={`${stats.avgTime.toFixed(0)}m`}
+                            sub={`Target: 45m`}
+                            trend={stats.avgTime < 45 ? "up" : "down"}
+                        />
                     </div>
 
-                    {/* Performance Distribution Chart */}
                     <div className="md:col-span-2 lg:col-span-3 bg-white rounded-[32px] border border-slate-100 p-6 shadow-sm flex flex-col">
                         <div className="flex items-center justify-between mb-6 px-2">
                             <div>
@@ -157,7 +214,7 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
 
                         <div className="flex-1 w-full min-h-[160px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={distributionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <BarChart data={stats.distribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <defs>
                                         <linearGradient id={`barGradient-${userRole}`} x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="0%" stopColor={brandColor} stopOpacity={1} />
@@ -206,17 +263,21 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                     </div>
                 </div>
 
-                {/* Submissions List */}
                 <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
                     <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
                         <h2 className="text-[11px] font-black uppercase tracking-widest text-slate-800">Student Submissions</h2>
                         <div className="flex items-center gap-3">
                             <div className="flex -space-x-2">
-                                {results.map(r => (
+                                {results.slice(0, 5).map(r => (
                                     <div key={r.rollNo} className="w-6 h-6 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[8px] font-black text-slate-400 uppercase">
                                         {r.name[0]}
                                     </div>
                                 ))}
+                                {results.length > 5 && (
+                                    <div className="w-6 h-6 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[8px] font-black text-slate-400">
+                                        +{results.length - 5}
+                                    </div>
+                                )}
                             </div>
                             <span className="text-[10px] font-black text-slate-400 uppercase">Total {results.length}</span>
                         </div>
@@ -224,19 +285,19 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
                             <thead>
-                                <tr className="bg-slate-50/50">
-                                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400">Roll No & Student</th>
-                                    <th className="px-6 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400">Section</th>
-                                    <th className="px-6 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400">Submitted At</th>
-                                    <th className="px-4 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400 text-center">Attempted</th>
-                                    <th className="px-4 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400 text-center">Score</th>
-                                    <th className="px-4 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400 text-center">Status</th>
-                                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-tighter text-slate-400 text-right">Actions</th>
+                                <tr className="border-b border-slate-50 bg-slate-50/30">
+                                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Student Info</th>
+                                    <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Section</th>
+                                    <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Timing</th>
+                                    <th className="px-4 py-4 text-center text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Progress</th>
+                                    <th className="px-4 py-4 text-center text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Score</th>
+                                    <th className="px-4 py-4 text-center text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Status</th>
+                                    <th className="px-8 py-4 text-right text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody>
                                 {results.map((r) => (
-                                    <tr key={r.rollNo} className="hover:bg-slate-50/20 transition-colors">
+                                    <tr key={r.sessionId} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
                                         <td className="px-8 py-5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center font-black text-[10px] text-slate-400">
@@ -263,13 +324,10 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                                                     onFocus={(e) => e.target.style.borderColor = brandColor}
                                                     onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                                                     value={r.score}
-                                                    onChange={(e) => updateScore(r.rollNo, e.target.value)}
+                                                    onChange={(e) => updateScore(r.sessionId, e.target.value)}
                                                 />
                                                 <span className="text-[10px] font-bold text-slate-300">/ {r.totalPossible}</span>
                                             </div>
-                                            <p className="text-[8px] font-black text-slate-400 mt-1 uppercase">
-                                                {((r.score / r.totalPossible) * 100).toFixed(0)}%
-                                            </p>
                                         </td>
                                         <td className="px-4 py-5 text-center">
                                             <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${r.status === 'Passed' ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'bg-rose-50 text-rose-600'}`}>
@@ -277,7 +335,7 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                                             </span>
                                         </td>
                                         <td className="px-8 py-5 text-right">
-                                            <Link href={`/dashboard/teacher/exams/${examId}/submission/${r.rollNo}/preview`}>
+                                            <Link href={`/dashboard/teacher/exams/${examId}/submission/${r.sessionId}/preview`}>
                                                 <button className="text-[9px] font-black uppercase text-slate-400 hover:text-[var(--brand)] transition-colors">
                                                     Preview →
                                                 </button>
@@ -311,7 +369,7 @@ function MetricLabel({ color, label, value }: any) {
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
             <span className="text-xs font-black text-slate-800">{value}</span>
         </div>
-    )
+    );
 }
 
 function CompactStatTile({ label, value, sub, trend }: any) {
@@ -321,10 +379,10 @@ function CompactStatTile({ label, value, sub, trend }: any) {
             <div className="flex items-end gap-2">
                 <p className="text-xl font-black text-slate-800 leading-none">{value}</p>
                 <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${trend === 'up' ? 'text-emerald-500 bg-emerald-50' : trend === 'down' ? 'text-rose-500 bg-rose-50' : 'text-slate-400 bg-slate-50'}`}>
-                    {trend === 'up' ? '▲' : '▼'} 2%
+                    {trend === 'up' ? '▲' : '▼'}
                 </span>
             </div>
             <p className="text-[8px] font-bold text-slate-300 uppercase mt-2">{sub}</p>
         </div>
-    )
+    );
 }

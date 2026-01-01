@@ -186,7 +186,7 @@ export class ExamService {
         return 'MCQ'; // Default fallback
     }
 
-    private transformExam(exam: any) {
+    public transformExam(exam: any) {
         const questionsMap: Record<string, any> = {};
         const finalSections: any[] = [];
 
@@ -295,7 +295,7 @@ export class ExamService {
         };
     }
 
-    private transformCourseTest(test: any) {
+    public transformCourseTest(test: any) {
         // Course Tests are already stored with 'questions' which is the sections JSON
         const questionsData = test.questions as any;
         // Handle both: arrays (sections list) or object with sections key
@@ -350,7 +350,7 @@ export class ExamService {
         };
     }
 
-    private transformCourse(course: any) {
+    public transformCourse(course: any) {
         const questionsMap: Record<string, any> = {};
         const sections = course.modules.map((m: any, mIdx: number) => {
             const questions = m.units.map((u: any, uIdx: number) => {
@@ -402,6 +402,9 @@ export class ExamService {
             });
 
             if (existing) {
+                if (existing.status === 'TERMINATED') {
+                    throw new ConflictException('Exam session has been terminated by the instructor. Contact your teacher.');
+                }
                 // If metadata changed, we could update it. But typically it stays same for the session.
                 // We'll update it if provided to ensure the latest "Name/Roll No" from login is preserved.
                 if (metadata) {
@@ -429,8 +432,8 @@ export class ExamService {
                 });
 
                 // Add violation counts to existing object
-                (existing as any).tabSwitchOutCount = existing.violations.filter(v => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
-                (existing as any).tabSwitchInCount = existing.violations.filter(v => v.type === 'TAB_SWITCH_IN').length;
+                (existing as any).tabSwitchOutCount = existing.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
+                (existing as any).tabSwitchInCount = existing.violations.filter((v: any) => v.type === 'TAB_SWITCH_IN').length;
                 (existing as any).feedbackDone = !!feedbackRecord;
                 return existing;
             }
@@ -504,5 +507,64 @@ export class ExamService {
                 timestamp: new Date()
             }
         });
+    }
+
+    public calculateScore(answers: any, questionsData: any) {
+        if (!answers || !questionsData) return 0;
+
+        let score = 0;
+        let sections = [];
+
+        if (Array.isArray(questionsData)) {
+            // Flat array of questions or sections
+            if (questionsData.length > 0 && questionsData[0].questions) {
+                sections = questionsData;
+            } else {
+                sections = [{ questions: questionsData }];
+            }
+        } else if (questionsData.sections) {
+            sections = questionsData.sections;
+        } else if (typeof questionsData === 'object') {
+            // Handle case where questionsData is an object of questions
+            sections = [{ questions: Object.values(questionsData) }];
+        }
+
+        sections.forEach((section: any) => {
+            const questions = section.questions || [];
+            questions.forEach((q: any) => {
+                const studentAnswer = answers[q.id];
+                if (studentAnswer === undefined || studentAnswer === null) return;
+
+                const qType = (q.type || '').toUpperCase();
+
+                if (qType === 'MCQ' || qType === 'MULTISELECT') {
+                    const options = q.mcqOptions || q.options || [];
+                    if (qType === 'MCQ') {
+                        const correctOption = options.find((opt: any) => opt.isCorrect);
+                        if (correctOption && studentAnswer === correctOption.id) {
+                            score += Number(q.points) || 1;
+                        }
+                    } else {
+                        // MultiSelect
+                        const correctIds = options.filter((opt: any) => opt.isCorrect).map((opt: any) => opt.id);
+                        const studentIds = Array.isArray(studentAnswer) ? studentAnswer : [];
+                        if (correctIds.length === studentIds.length && correctIds.every((id: string) => studentIds.includes(id))) {
+                            score += Number(q.points) || 1;
+                        }
+                    }
+                } else if (qType === 'CODING') {
+                    // Logic for coding score based on test cases passed
+                    if (studentAnswer.testResults && Array.isArray(studentAnswer.testResults)) {
+                        const passed = studentAnswer.testResults.filter((r: any) => r.passed).length;
+                        const total = studentAnswer.testResults.length;
+                        if (total > 0) {
+                            score += (passed / total) * (Number(q.points) || 10);
+                        }
+                    }
+                }
+            });
+        });
+
+        return Math.round(score * 100) / 100;
     }
 }

@@ -42,10 +42,21 @@ export default function LoginPage() {
                 router.push(`/dashboard/${rolePath}`);
             }
         } catch (err: any) {
-            if (err?.message === 'ACCOUNT_SUSPENDED') {
+            const errorMessage = err?.message || "";
+
+            if (errorMessage === 'ACCOUNT_SUSPENDED') {
                 setError("Your account has been suspended. Please contact the administrator.");
+            } else if (errorMessage.startsWith('ORG_PAUSED:')) {
+                const orgName = errorMessage.split(':')[1];
+                setError(`This organization (${orgName}) is currently paused. Please contact support for assistance.`);
+            } else if (errorMessage.startsWith('ORG_SUSPENDED:')) {
+                const orgName = errorMessage.split(':')[1];
+                setError(`This organization (${orgName}) has been suspended. Please contact support for assistance.`);
+            } else if (errorMessage.startsWith('ORG_')) {
+                // Generic org status error
+                setError("Your organization access is currently restricted. Please contact support.");
             } else {
-                setError(err?.message || "Login failed");
+                setError(errorMessage || "Login failed");
             }
         } finally {
             setIsLoading(false);

@@ -56,25 +56,47 @@ export default function AnalyticsPage() {
     useEffect(() => {
         async function loadAnalytics() {
             try {
-                const data = await StudentService.getAnalytics();
+                const studentId = searchParams.get("studentId");
+                let data;
+                let attemptsData;
+
+                if (studentId) {
+                    // Fetch as teacher
+                    const { TeacherService } = await import("@/services/api/TeacherService");
+                    data = await TeacherService.getStudentAnalytics(studentId);
+                    attemptsData = await TeacherService.getStudentUnitSubmissions(studentId);
+                } else {
+                    // Fetch as student
+                    data = await StudentService.getAnalytics();
+                    attemptsData = await StudentService.getAttempts();
+                }
+
                 setAnalyticsData(data);
 
-                // Fetch attempts to populate the detailed table
-                const attemptsData = await StudentService.getAttempts();
-                const mappedQuestions: Question[] = attemptsData.map((att: any, idx: number) => ({
-                    id: idx + 1,
-                    title: att.examTitle,
-                    course: "Exam",
-                    type: "EXAM",
-                    status: att.status === "COMPLETED" ? "Submitted" : "Terminated",
-                    attempts: [
-                        {
-                            date: new Date(att.startedAt).toLocaleString(),
-                            testCases: att.score !== null ? `${att.score}/100` : "N/A",
-                            status: att.status === "COMPLETED" ? "success" : "failed"
-                        }
-                    ]
-                }));
+                // Group submissions by unitId for the detailed table
+                const unitMap = new Map<string, Question>();
+                attemptsData.forEach((sub: any) => {
+                    const unitId = sub.unitId;
+                    if (!unitMap.has(unitId)) {
+                        unitMap.set(unitId, {
+                            id: unitMap.size + 1,
+                            title: sub.unitTitle,
+                            course: sub.courseTitle,
+                            type: sub.unitType,
+                            status: sub.status === "COMPLETED" ? "Submitted" : sub.status,
+                            attempts: []
+                        });
+                    }
+
+                    const unit = unitMap.get(unitId)!;
+                    unit.attempts.push({
+                        date: new Date(sub.createdAt).toLocaleString(),
+                        testCases: sub.score !== null ? `${sub.score}/100` : "N/A",
+                        status: sub.status === "COMPLETED" ? "success" : "failed"
+                    });
+                });
+
+                const mappedQuestions = Array.from(unitMap.values());
                 setQuestions(mappedQuestions);
             } catch (error) {
                 console.error("Failed to load analytics", error);
@@ -98,8 +120,7 @@ export default function AnalyticsPage() {
             exams: { total: 0, passed: 0, failed: 0 }
         };
 
-        const totalAttempts = questions.reduce((acc, q) => acc + q.attempts.length, 0);
-        const passedExams = questions.filter(q => q.attempts[0]?.status === "success").length;
+        const passedExams = questions.filter(q => q.status === 'Submitted' || q.status === 'COMPLETED').length;
 
         return {
             totalQuestions: analyticsData.stats.totalQuestions,
@@ -111,7 +132,7 @@ export default function AnalyticsPage() {
             avgAttempts: analyticsData.stats.totalQuestions > 0
                 ? (analyticsData.stats.totalAttempts / analyticsData.stats.totalQuestions).toFixed(1)
                 : 0,
-            streak: 0, // Profile should provide this or keep as 0 if not calculated here
+            streak: 0,
             exams: {
                 total: questions.length,
                 passed: passedExams,
@@ -120,9 +141,18 @@ export default function AnalyticsPage() {
         };
     }, [analyticsData, questions]);
 
+    const availableCourses = useMemo(() => {
+        const courses = new Set(questions.map(q => q.course));
+        return ["All Courses", ...Array.from(courses)];
+    }, [questions]);
+
+    const filteredQuestions = useMemo(() => {
+        return questions.filter(q => selectedCourse === "All Courses" || q.course === selectedCourse);
+    }, [questions, selectedCourse]);
+
     const examPieData = [
-        { name: 'Passed', value: stats.exams.passed },
-        { name: 'Failed', value: stats.exams.failed },
+        { name: 'Succeeded', value: stats.passedAttempts },
+        { name: 'Failed', value: stats.failedAttempts },
     ];
 
     const toggleExpand = (id: number) => {
@@ -265,7 +295,7 @@ export default function AnalyticsPage() {
 
                             {/* Status Distribution */}
                             <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex flex-col">
-                                <h3 className="text-lg font-black text-slate-800 mb-8">Exam Distribution</h3>
+                                <h3 className="text-lg font-black text-slate-800 mb-8">Submission Distribution</h3>
                                 <div className="h-[250px] w-full relative">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
@@ -296,16 +326,16 @@ export default function AnalyticsPage() {
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                                            <span className="text-xs font-bold text-slate-600">Passed</span>
+                                            <span className="text-xs font-bold text-slate-600">Succeeded</span>
                                         </div>
-                                        <span className="text-xs font-black text-slate-800">{stats.exams.passed} Exams</span>
+                                        <span className="text-xs font-black text-slate-800">{stats.passedAttempts} Attempts</span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-3 h-3 rounded-full bg-rose-500" />
                                             <span className="text-xs font-bold text-slate-600">Failed</span>
                                         </div>
-                                        <span className="text-xs font-black text-slate-800">{stats.exams.failed} Exams</span>
+                                        <span className="text-xs font-black text-slate-800">{stats.failedAttempts} Attempts</span>
                                     </div>
                                 </div>
                             </div>
@@ -373,9 +403,9 @@ export default function AnalyticsPage() {
                                         onChange={(e) => setSelectedCourse(e.target.value)}
                                         className="appearance-none bg-white border border-slate-200 rounded-xl px-5 py-2.5 pr-12 text-xs font-black text-slate-700 focus:outline-none focus:ring-4 focus:ring-[var(--brand-light)] transition-all cursor-pointer shadow-sm"
                                     >
-                                        <option>Web Development - 1</option>
-                                        <option>JavaScript Basics</option>
-                                        <option>React Mastery</option>
+                                        {availableCourses.map(course => (
+                                            <option key={course} value={course}>{course}</option>
+                                        ))}
                                     </select>
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M6 9l6 6 6-6" /></svg>
@@ -402,7 +432,7 @@ export default function AnalyticsPage() {
                             </div>
 
                             <div className="divide-y divide-slate-50">
-                                {questions.map((q) => (
+                                {filteredQuestions.map((q) => (
                                     <div key={q.id} className="bg-white">
                                         <div
                                             onClick={() => toggleExpand(q.id)}

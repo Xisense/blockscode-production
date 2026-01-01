@@ -8,6 +8,7 @@ import ExamDetailsModal from "@/app/components/Features/Exams/ExamDetailsModal";
 import EnrollmentModal from "@/app/components/Common/EnrollmentModal";
 
 import { AdminService } from "@/services/api/AdminService";
+import { AuthService } from "@/services/api/AuthService";
 import { useEffect } from "react";
 
 interface AdminExamsViewProps {
@@ -21,7 +22,7 @@ interface AdminExamsViewProps {
     };
 }
 
-export default function AdminExamsView({ basePath = '/dashboard/admin', orgPermissions = { canCreateExams: true, canCreateCourses: true, allowCourseTests: true } }: AdminExamsViewProps) {
+export default function AdminExamsView({ basePath = '/dashboard/admin' }: AdminExamsViewProps) {
     const [activeTab, setActiveTab] = useState<'exams' | 'courses'>('exams');
     const [searchQuery, setSearchQuery] = useState("");
     const [viewingCourse, setViewingCourse] = useState<any | null>(null);
@@ -30,8 +31,12 @@ export default function AdminExamsView({ basePath = '/dashboard/admin', orgPermi
     const [exams, setExams] = useState<any[]>([]);
     const [courses, setCourses] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userData, setUserData] = useState<any>(null);
 
     useEffect(() => {
+        const user = AuthService.getUser();
+        setUserData(user);
+
         async function load() {
             try {
                 const [ex, cr] = await Promise.all([
@@ -48,6 +53,8 @@ export default function AdminExamsView({ basePath = '/dashboard/admin', orgPermi
         }
         load();
     }, []);
+
+    const orgPermissions = userData?.features || { canCreateExams: true, canCreateCourses: true, allowCourseTests: true };
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">

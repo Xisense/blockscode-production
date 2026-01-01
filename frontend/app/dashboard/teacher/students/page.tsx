@@ -40,7 +40,7 @@ export default function TeacherStudentsPage() {
     };
 
     const handleViewAnalytics = (student: any) => {
-        router.push(`/dashboard/student/analytics?studentName=${encodeURIComponent(student.name)}`);
+        router.push(`/dashboard/student/analytics?studentId=${student.id}&studentName=${encodeURIComponent(student.name)}`);
     };
 
     if (isLoading) return <Loading />;
@@ -179,32 +179,46 @@ export default function TeacherStudentsPage() {
                             </div>
                         </div>
 
-                        <div className="bg-slate-50 rounded-[32px] p-8 border border-slate-100 space-y-6">
+                        <div className="bg-slate-50 rounded-[32px] p-8 border border-slate-100 space-y-6 max-h-[400px] overflow-y-auto custom-scrollbar">
                             <div>
-                                <div className="flex items-center justify-between mb-3">
-                                    <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest">Active Curriculum</h4>
+                                <div className="flex items-center justify-between mb-3 px-2">
+                                    <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest">Enrolled Curriculums</h4>
                                     <span className="text-[10px] font-black text-[var(--brand)] uppercase bg-[var(--brand-light)] px-3 py-1 rounded-lg">Verified Enrollment</span>
                                 </div>
-                                <div className="p-6 rounded-2xl bg-white border border-slate-100 flex items-center justify-between shadow-sm">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-[var(--brand)] shadow-inner">
-                                            <BookOpen size={24} />
+                                <div className="space-y-4">
+                                    {selectedStudent.courses && selectedStudent.courses.length > 0 ? (
+                                        selectedStudent.courses.map((course: any) => (
+                                            <div key={course.id} className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-[var(--brand)] transition-colors">
+                                                <div className="flex items-center gap-4 mb-4">
+                                                    <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-[var(--brand)] shadow-inner">
+                                                        <BookOpen size={24} />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-black text-slate-800 text-sm leading-tight">{course.title}</h4>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{course.completedUnits}/{course.totalUnits} Units Completed</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                        <div
+                                                            className="h-full bg-[var(--brand)] rounded-full transition-all duration-1000"
+                                                            style={{ width: `${course.progress}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="p-6 rounded-2xl bg-white border border-slate-100 text-center">
+                                            <p className="text-sm font-bold text-slate-400">No courses enrolled under your management.</p>
                                         </div>
-                                        <div>
-                                            <h4 className="font-black text-slate-800 text-sm leading-tight">{selectedStudent.course}</h4>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">Ongoing Learning Path</p>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-2xl font-black text-slate-800 leading-none">{selectedStudent.progress}%</p>
-                                        <p className="text-[10px] font-black text-slate-300 uppercase mt-1">Completion</p>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm">
-                                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Submissions</p>
+                                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">Total Submissions</p>
                                     <p className="text-2xl font-black text-slate-800">{selectedStudent.submissions}</p>
                                 </div>
                                 <div className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm">

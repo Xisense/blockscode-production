@@ -6,12 +6,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { AuthService } from '@/services/api/AuthService';
 import { useOrganization } from '@/app/context/OrganizationContext';
+import Loading from '@/app/loading';
 
 export default function ExamLoginPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
     const [loading, setLoading] = useState(false);
+    const [isCheckingStatus, setIsCheckingStatus] = useState(true); // Start true to prevent flicker
     const [password, setPassword] = useState('');
     const [rollNo, setRollNo] = useState('');
     const [testCode, setTestCode] = useState('');
@@ -36,12 +38,25 @@ export default function ExamLoginPage() {
                     if (res.ok) {
                         const data = await res.json();
                         setExamInfo(data);
+
+                        // Check if exam hasn't started yet
+                        if (data.startTime) {
+                            const start = new Date(data.startTime).getTime();
+                            if (Date.now() < start) {
+                                router.push(`/exam/waiting?slug=${slugFromQuery}`);
+                                return; // Do NOT set isCheckingStatus to false, keep loading while redirecting
+                            }
+                        }
                     }
+                    setIsCheckingStatus(false);
                 } catch (err) {
                     console.error("Failed to load exam metadata", err);
+                    setIsCheckingStatus(false);
                 }
             };
             fetchExam();
+        } else {
+            setIsCheckingStatus(false);
         }
     }, [slugFromQuery]);
 
@@ -53,6 +68,8 @@ export default function ExamLoginPage() {
             setError('You have been logged out because a new session was started on another tab or device.');
         } else if (errorType === 'suspended') {
             setError('Your account has been suspended. Please contact the administrator.');
+        } else if (errorType === 'terminated') {
+            setError('Your exam session has been terminated by the administrator. Contact your teacher.');
         }
     }, [searchParams]);
 
@@ -93,6 +110,12 @@ export default function ExamLoginPage() {
             setLoading(false);
         }
     };
+
+
+
+    if (isCheckingStatus) {
+        return <Loading />;
+    }
 
     return (
         <div className="h-screen w-full bg-slate-50 flex items-center justify-center font-inter overflow-hidden">

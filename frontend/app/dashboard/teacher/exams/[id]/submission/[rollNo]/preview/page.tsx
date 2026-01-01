@@ -10,7 +10,8 @@ import ExamSidebar from '@/app/components/ExamSidebar';
 
 import { TeacherService } from '@/services/api/TeacherService';
 
-export default function SubmissionPreviewPage({ params }: { params: { id: string, rollNo: string } }) {
+export default function SubmissionPreviewPage({ params }: { params: Promise<{ id: string, rollNo: string }> }) {
+    const { id, rollNo: identifier } = React.use(params);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [activeTab, setActiveTab] = useState<"question" | "attempts">("question");
     const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>(undefined);
@@ -27,11 +28,13 @@ export default function SubmissionPreviewPage({ params }: { params: { id: string
     useEffect(() => {
         async function loadSubmission() {
             try {
-                const data = await TeacherService.getSubmission(params.id, params.rollNo);
+                const data = await TeacherService.getSubmission(id, identifier);
                 setSubmissionData(data);
 
                 // Initialize marks if any exist in the data
-                // For now we keep it empty or mock
+                if (data.answers && data.answers._internal_marks) {
+                    setMarks(data.answers._internal_marks);
+                }
             } catch (error) {
                 console.error("Failed to load submission", error);
             } finally {
@@ -39,7 +42,7 @@ export default function SubmissionPreviewPage({ params }: { params: { id: string
             }
         }
         loadSubmission();
-    }, [params.id, params.rollNo]);
+    }, [id, identifier]);
 
     const currentQuestion = submissionData?.questions?.[currentQuestionIndex];
 
@@ -64,6 +67,27 @@ export default function SubmissionPreviewPage({ params }: { params: { id: string
             }
         ];
     }, [submissionData]);
+
+    const handleSave = async () => {
+        if (!submissionData) return;
+        // If teacher is editing per-question marks, we should sum them up
+        // or just let them edit the total score directly.
+        // For now, let's assume they want to save what they've entered.
+        const totalCalculated = Object.values(marks).reduce((acc, curr) => acc + (parseFloat(curr as string) || 0), 0);
+
+        try {
+            await TeacherService.updateSubmissionScore(id, submissionData.details.sessionId, totalCalculated);
+            // Update local state to reflect the new score
+            setSubmissionData((prev: any) => ({
+                ...prev,
+                details: { ...prev.details, score: totalCalculated }
+            }));
+            alert(`Grades saved! Total Score: ${totalCalculated}`);
+        } catch (error) {
+            console.error("Failed to save grades", error);
+            alert("Failed to save grades");
+        }
+    };
 
     // Handlers
     const handleQuestionSelect = (sectionId: string, questionId: string | number) => {
@@ -113,6 +137,7 @@ export default function SubmissionPreviewPage({ params }: { params: { id: string
         );
     }
 
+    const currentQuestionPoints = Number(currentQuestion?.points) || (currentQuestion?.type === 'Coding' ? 10 : 1);
 
     return (
         <div className="h-screen flex flex-col bg-white overflow-hidden">
@@ -149,14 +174,17 @@ export default function SubmissionPreviewPage({ params }: { params: { id: string
                         selectedAttemptId={selectedAttemptId}
                         onAttemptSelect={handleAttemptSelect}
                         viewingAttemptAnswer={viewingAttempt?.answer}
+                        currentAnswer={submissionData.answers[currentQuestion.id]}
                         onClearAttemptSelection={() => setSelectedAttemptId(undefined)}
                         topHeader={
                             <ConsolidatedHeader
                                 studentName={submissionData.details.studentName}
                                 rollNo={submissionData.details.rollNo}
                                 marks={marks[currentQuestion.id] || ''}
+                                maxMarks={currentQuestionPoints}
+                                totalScore={submissionData.details.score}
                                 onMarkChange={handleMarkChange}
-                                onSave={() => { /* API Call */ }}
+                                onSave={handleSave}
                                 onExit={() => window.history.back()}
                             />
                         }
@@ -170,7 +198,7 @@ export default function SubmissionPreviewPage({ params }: { params: { id: string
 /** 
  * Consolidated Header - Professional Grading Strip
  */
-function ConsolidatedHeader({ studentName, rollNo, marks, onMarkChange, onSave, onExit }: any) {
+function ConsolidatedHeader({ studentName, rollNo, marks, maxMarks, totalScore, onMarkChange, onSave, onExit }: any) {
     return (
         <div className="flex items-center justify-between px-6 h-16 bg-white border-b border-slate-100 shadow-sm relative z-50">
             {/* Left: Student Identity */}
@@ -183,10 +211,9 @@ function ConsolidatedHeader({ studentName, rollNo, marks, onMarkChange, onSave, 
                         <h4 className="text-sm font-black text-slate-800 leading-tight">
                             {studentName} <span className="text-slate-300 font-bold ml-1">({rollNo})</span>
                         </h4>
-                        <div className="flex items-center gap-2 mt-0.5">
-                            <span className="flex h-1.5 w-1.5 rounded-full bg-[var(--brand)] animate-pulse"></span>
-                            <p className="text-[10px] font-black text-[var(--brand)] uppercase tracking-widest opacity-80">Review Mode</p>
-                        </div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
+                            Total Score: <span className="text-[var(--brand)]">{totalScore || 0}</span>
+                        </p>
                     </div>
                 </div>
             </div>
@@ -204,7 +231,7 @@ function ConsolidatedHeader({ studentName, rollNo, marks, onMarkChange, onSave, 
                                 className="w-14 text-center bg-slate-50 border border-slate-200 rounded-xl py-2 text-base font-black text-slate-800 outline-none focus:border-[var(--brand)] focus:ring-4 focus:ring-[var(--brand-light)] transition-all shadow-inner"
                                 placeholder="0"
                             />
-                            <span className="text-sm font-bold text-slate-400">/ 10</span>
+                            <span className="text-sm font-bold text-slate-400">/ {maxMarks}</span>
                         </div>
                     </div>
                 </div>

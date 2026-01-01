@@ -1,17 +1,83 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Navbar from "@/app/components/Navbar";
-import { Search, Globe, Shield, Filter, Mail, Ban, CheckCircle2, MoreVertical, Building2, Users, UserCog } from "lucide-react";
+import { Search, Globe, Shield, Filter, Mail, Ban, CheckCircle2, MoreVertical, Building2, Users, UserCog, Trash2, Power } from "lucide-react";
+import { SuperAdminService } from "@/services/api/SuperAdminService";
+import Loading from "@/app/loading";
+import { useToast } from "@/app/components/Common/Toast";
+import AlertModal from "@/app/components/Common/AlertModal";
+
+const ROLE_LABELS: Record<string, string> = {
+    'SUPER_ADMIN': 'Super Admin',
+    'ADMIN': 'Organization Admin',
+    'TEACHER': 'Instructor',
+    'STUDENT': 'Student'
+};
 
 export default function SuperAdminUsersPage() {
     const [searchQuery, setSearchQuery] = useState("");
+    const [users, setUsers] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const { success, error: toastError } = useToast();
 
-    const users = [
-        { id: "SYS-001", name: "Pawan Bista", role: "Super Admin", email: "pawan@codequotient.com", org: "Global", status: "Active" },
-        { id: "USR-A1", name: "Amit Sharma", role: "Organization Admin", email: "amit@bcu.edu", org: "BlocksCode Univ.", status: "Active" },
-        { id: "USR-T1", name: "Dr. Neha Gupta", role: "Instructor", email: "neha@ti.in", org: "Tech Institute", status: "Active" },
-        { id: "USR-S1", name: "Rahul Verma", role: "Student", email: "rahul@dps.edu", org: "DPS School", status: "Suspended" },
-    ];
+    // Delete Modal State
+    const [userToDelete, setUserToDelete] = useState<any | null>(null);
+
+    const fetchUsers = async () => {
+        try {
+            const data = await SuperAdminService.getUsers();
+            setUsers(data);
+        } catch (error) {
+            console.error("Failed to fetch users", error);
+            toastError("Unable to retrieve global user index.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchUsers();
+    }, []);
+
+    const handleToggleStatus = async (user: any) => {
+        setActionLoading(user.id);
+        try {
+            await SuperAdminService.updateUser(user.id, { isActive: !user.isActive });
+            setUsers(users.map(u => u.id === user.id ? { ...u, isActive: !u.isActive } : u));
+            success(
+                `User account ${!user.isActive ? 'activated' : 'suspended'} successfully.`,
+                "Permissions Updated"
+            );
+        } catch (error: any) {
+            toastError(error.message || "Failed to update user status");
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!userToDelete) return;
+        setLoading(true);
+        try {
+            await SuperAdminService.deleteUser(userToDelete.id);
+            setUsers(users.filter(u => u.id !== userToDelete.id));
+            success("User account permanently deleted.", "Account Removed");
+        } catch (error: any) {
+            toastError(error.message || "Failed to delete user");
+        } finally {
+            setLoading(false);
+            setUserToDelete(null);
+        }
+    };
+
+    const filteredUsers = users.filter(u =>
+        u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (u.organization?.name && u.organization.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+
+    if (loading && users.length === 0) return <Loading />;
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
@@ -22,6 +88,13 @@ export default function SuperAdminUsersPage() {
                     <div>
                         <h1 className="text-3xl font-black text-slate-900 tracking-tight">Global User Index</h1>
                         <p className="text-slate-400 font-bold text-sm mt-1">Universal user control across all platform tenants.</p>
+                    </div>
+                    <div className="flex items-center gap-4 bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm">
+                        <Users size={20} className="text-[var(--brand)]" />
+                        <div>
+                            <p className="text-[10px] font-black uppercase text-slate-300 leading-none mb-1">Total Users</p>
+                            <p className="text-lg font-black text-slate-800 leading-none">{users.length}</p>
+                        </div>
                     </div>
                 </div>
 
@@ -34,7 +107,7 @@ export default function SuperAdminUsersPage() {
                             placeholder="Universal search by name, email, org or role..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-12 pr-4 py-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-[var(--brand)] shadow-sm transition-all"
+                            className="w-full pl-12 pr-4 py-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-[var(--brand)] shadow-sm transition-all placeholder:text-slate-300"
                         />
                     </div>
                 </div>
@@ -53,12 +126,12 @@ export default function SuperAdminUsersPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {users.map((u) => (
+                                {filteredUsers.map((u) => (
                                     <tr key={u.id} className="hover:bg-slate-50/30 transition-all group">
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center font-black text-slate-400 text-sm">
-                                                    {u.name[0]}
+                                                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center font-black text-slate-400 text-sm overflow-hidden">
+                                                    {u.avatar ? <img src={u.avatar} alt="" className="w-full h-full object-cover" /> : u.name[0]}
                                                 </div>
                                                 <div>
                                                     <p className="text-sm font-black text-slate-800">{u.name}</p>
@@ -67,31 +140,40 @@ export default function SuperAdminUsersPage() {
                                             </div>
                                         </td>
                                         <td className="px-8 py-6">
-                                            <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${u.role === 'Super Admin' ? 'bg-[var(--brand)] text-white border-[var(--brand)]' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
-                                                {u.role}
+                                            <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${u.role === 'SUPER_ADMIN' ? 'bg-[var(--brand)] text-white border-[var(--brand)]' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                                                {ROLE_LABELS[u.role] || u.role}
                                             </span>
                                         </td>
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-2 text-slate-600">
                                                 <Building2 size={14} className="text-slate-300" />
-                                                <span className="text-xs font-black uppercase tracking-wider">{u.org}</span>
+                                                <span className="text-xs font-black uppercase tracking-wider">{u.organization?.name || 'BlocksCode (Global)'}</span>
                                             </div>
                                         </td>
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-2">
-                                                <div className={`w-1.5 h-1.5 rounded-full ${u.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-                                                <span className={`text-[10px] font-black uppercase tracking-widest ${u.status === 'Active' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                    {u.status}
+                                                <div className={`w-1.5 h-1.5 rounded-full ${u.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                                                <span className={`text-[10px] font-black uppercase tracking-widest ${u.isActive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                    {u.isActive ? 'Active' : 'Suspended'}
                                                 </span>
                                             </div>
                                         </td>
                                         <td className="px-8 py-6 text-right">
                                             <div className="flex items-center justify-end gap-2">
-                                                <button className="p-2 text-slate-300 hover:text-[var(--brand)] hover:bg-slate-50 rounded-xl transition-all" title="Manage Permissions">
-                                                    <UserCog size={18} />
+                                                <button
+                                                    onClick={() => handleToggleStatus(u)}
+                                                    disabled={actionLoading === u.id}
+                                                    className={`p-2 rounded-xl transition-all flex items-center gap-2 ${u.isActive ? 'text-slate-300 hover:text-rose-600 hover:bg-rose-50' : 'text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                                                    title={u.isActive ? "Suspend Account" : "Activate Account"}
+                                                >
+                                                    {actionLoading === u.id ? <div className="w-4.5 h-4.5 border-2 border-current border-t-transparent rounded-full animate-spin"></div> : (u.isActive ? <Ban size={18} /> : <CheckCircle2 size={18} />)}
                                                 </button>
-                                                <button className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Force Suspension">
-                                                    <Ban size={18} />
+                                                <button
+                                                    onClick={() => setUserToDelete(u)}
+                                                    className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                                    title="Permanently Delete"
+                                                >
+                                                    <Trash2 size={18} />
                                                 </button>
                                             </div>
                                         </td>
@@ -101,7 +183,29 @@ export default function SuperAdminUsersPage() {
                         </table>
                     </div>
                 </div>
+
+                {filteredUsers.length === 0 && !loading && (
+                    <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border border-slate-100 mt-4">
+                        <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mb-6">
+                            <Search size={32} className="text-slate-200" />
+                        </div>
+                        <h3 className="text-lg font-black text-slate-800">No users found</h3>
+                        <p className="text-sm font-medium text-slate-400 mt-2 text-center max-w-xs">
+                            We couldn't find any users matching "{searchQuery}" in the global register.
+                        </p>
+                    </div>
+                )}
             </main>
+
+            <AlertModal
+                isOpen={!!userToDelete}
+                title="Delete User Account?"
+                message={`Are you sure you want to permanently delete ${userToDelete?.name}? This action cannot be undone and will remove all their associated data across all platforms.`}
+                onConfirm={handleDeleteConfirm}
+                onCancel={() => setUserToDelete(null)}
+                type="danger"
+                confirmLabel="Delete Permanently"
+            />
         </div>
     );
 }

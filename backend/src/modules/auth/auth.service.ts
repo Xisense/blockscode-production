@@ -14,17 +14,62 @@ export class AuthService {
     ) { }
 
     async validateUser(email: string, pass: string): Promise<any> {
-        const user = await this.prisma.user.findUnique({ where: { email } });
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            include: {
+                organization: {
+                    select: {
+                        features: true,
+                        status: true,
+                        name: true
+                    }
+                }
+            }
+        });
+
+        console.log('[AuthService] validateUser called for:', email);
+        console.log('[AuthService] User found:', user ? 'Yes' : 'No');
+
+        if (user) {
+            console.log('[AuthService] User role:', user.role);
+            console.log('[AuthService] User orgId:', user.orgId);
+            console.log('[AuthService] Organization data:', user.organization);
+        }
 
         // In a real app, use bcrypt.compare
         // For now, assuming user might be created manually or via seed
         if (user && (await bcrypt.compare(pass, user.password))) {
+            // Check if account is suspended
             if (!user.isActive) {
+                console.log('[AuthService] ❌ Account is suspended');
                 throw new UnauthorizedException('ACCOUNT_SUSPENDED');
             }
+
+            // Check organization status (Super Admins bypass this check)
+            console.log('[AuthService] Checking organization status...');
+            console.log('[AuthService] Is Super Admin?', user.role === 'SUPER_ADMIN');
+            console.log('[AuthService] Has organization?', !!user.organization);
+
+            if (user.role !== 'SUPER_ADMIN' && user.organization) {
+                console.log('[AuthService] Organization status:', user.organization.status);
+
+                if (user.organization.status !== 'Active') {
+                    console.log('[AuthService] ❌ Organization is not Active, blocking login');
+                    throw new UnauthorizedException(
+                        `ORG_${user.organization.status.toUpperCase()}:${user.organization.name}`
+                    );
+                }
+                console.log('[AuthService] ✅ Organization is Active');
+            } else {
+                console.log('[AuthService] ✅ Skipping org check (Super Admin or no org)');
+            }
+
             const { password, ...result } = user;
+            console.log('[AuthService] ✅ Validation successful');
             return result;
         }
+
+        console.log('[AuthService] ❌ Invalid credentials');
         return null;
     }
 
@@ -42,6 +87,8 @@ export class AuthService {
                 email: user.email,
                 name: user.name,
                 role: user.role,
+                orgId: user.orgId,
+                features: user.organization?.features || {},
                 mustChangePassword: user.mustChangePassword,
                 otp_enabled: false
             }
@@ -66,7 +113,15 @@ export class AuthService {
         if (!exam) throw new UnauthorizedException('Invalid test code');
 
         const user = await this.prisma.user.findFirst({
-            where: { email }
+            where: { email },
+            include: {
+                organization: {
+                    select: {
+                        status: true,
+                        name: true
+                    }
+                }
+            }
         });
 
         if (!user) {
@@ -75,6 +130,13 @@ export class AuthService {
 
         if (!user.isActive) {
             throw new UnauthorizedException('ACCOUNT_SUSPENDED');
+        }
+
+        // Check organization status
+        if (user.organization && user.organization.status !== 'Active') {
+            throw new UnauthorizedException(
+                `ORG_${user.organization.status.toUpperCase()}:${user.organization.name}`
+            );
         }
 
         // ROLE RESTRICTION: Students & Admins only
@@ -87,8 +149,13 @@ export class AuthService {
             where: { userId_examId: { userId: user.id, examId: exam.id } }
         });
 
-        if (existingSession && existingSession.status === 'COMPLETED') {
-            throw new ConflictException('EXAM_ALREADY_SUBMITTED');
+        if (existingSession) {
+            if (existingSession.status === 'TERMINATED') {
+                throw new UnauthorizedException('EXAM_TERMINATED');
+            }
+            if (existingSession.status === 'COMPLETED') {
+                throw new ConflictException('EXAM_ALREADY_SUBMITTED');
+            }
         }
 
         // Check for active presence in Redis - INFORMATIVE ONLY (Takeover will happen in Gateway)

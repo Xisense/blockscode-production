@@ -5,6 +5,7 @@ import Navbar from "@/app/components/Navbar";
 import Link from "next/link";
 import { Search, Building2, Plus, Filter, MoreVertical, Globe, Users, Settings2, Trash2, Edit3, ShieldCheck } from "lucide-react";
 import { useToast } from "@/app/components/Common/Toast";
+import Loading from "@/app/loading";
 
 export default function SuperAdminOrganizationsPage() {
     const [searchQuery, setSearchQuery] = useState("");
@@ -32,8 +33,6 @@ export default function SuperAdminOrganizationsPage() {
         (org.domain && org.domain.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
-    // ... (Use filteredOrgs in the map below)
-
     const [orgToDelete, setOrgToDelete] = useState<any | null>(null);
     const { success, error: toastError } = useToast();
 
@@ -48,14 +47,14 @@ export default function SuperAdminOrganizationsPage() {
         }
     };
 
-    if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    if (loading) return <Loading />;
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
             <Navbar />
 
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in">
-                {/* ... (Header and Search remain same) ... */}
+                {/* Header */}
                 <div className="flex items-center justify-between mb-12">
                     <div>
                         <h1 className="text-3xl font-black text-slate-900 tracking-tight">Organizations Registry</h1>

@@ -132,11 +132,12 @@ export const StudentService = {
         }
     },
 
-    async addBookmark(unitId: string) {
+    async addBookmark(unitId: string, metadata?: any) {
         try {
             const res = await fetch(`${BASE_URL}/student/bookmarks/${unitId}`, {
                 method: 'POST',
-                headers: getHeaders()
+                headers: getHeaders(),
+                body: JSON.stringify(metadata || {})
             });
             if (!res.ok) throw new Error('Failed to add bookmark');
             return await res.json();
@@ -148,9 +149,13 @@ export const StudentService = {
 
     async removeBookmark(unitId: string) {
         try {
+            const token = AuthService.getToken();
             const res = await fetch(`${BASE_URL}/student/bookmarks/${unitId}`, {
                 method: 'DELETE',
-                headers: getHeaders()
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                    // No Content-Type for DELETE requests
+                }
             });
             if (!res.ok) throw new Error('Failed to remove bookmark');
             return await res.json();

@@ -2,11 +2,14 @@ import { Controller, Get, UseGuards, Delete, Param, Patch, Post, Body, Unauthori
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { OrgFeaturesGuard } from '../auth/guards/org-features.guard';
+import { OrgStatusGuard } from '../auth/guards/org-status.guard';
+import { RequireOrgFeature } from '../auth/org-feature.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { User } from '../auth/user.decorator';
 
 @Controller('admin')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, OrgStatusGuard)
 @Roles('ADMIN')
 export class AdminController {
     constructor(private readonly adminService: AdminService) { }
@@ -22,11 +25,15 @@ export class AdminController {
     }
 
     @Post('users')
+    @UseGuards(OrgFeaturesGuard)
+    @RequireOrgFeature('canManageUsers')
     async createUser(@User() user: any, @Body() data: any) {
         return this.adminService.createUser(data, user);
     }
 
     @Post('users/bulk')
+    @UseGuards(OrgFeaturesGuard)
+    @RequireOrgFeature('canManageUsers')
     async createUsersBulk(@User() user: any, @Body() data: { users: any[] }) {
         return this.adminService.createUsersBulk(data.users, user);
     }
@@ -52,11 +59,15 @@ export class AdminController {
     }
 
     @Patch('users/:id/status')
+    @UseGuards(OrgFeaturesGuard)
+    @RequireOrgFeature('canManageUsers')
     async toggleUserStatus(@Param('id') id: string) {
         return this.adminService.toggleUserStatus(id);
     }
 
     @Delete('users/:id')
+    @UseGuards(OrgFeaturesGuard)
+    @RequireOrgFeature('canManageUsers')
     async deleteUser(@Param('id') id: string) {
         console.log('[AdminController] Deleting user:', id);
         return this.adminService.deleteUser(id);

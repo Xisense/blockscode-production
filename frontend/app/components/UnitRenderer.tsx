@@ -54,7 +54,10 @@ export interface UnitQuestion {
         testCases?: Array<any>;
     };
     // MCQ specific
-    mcqOptions?: { id: string; text: string; }[];
+    mcqOptions?: { id: string; text: string; isCorrect?: boolean; }[];
+    module?: any;
+    moduleUnits?: any[];
+    moduleTitle?: string;
     // Reading specific
     readingContent?: {
         id: string;
@@ -538,6 +541,7 @@ export default function UnitRenderer({
                                         attempts={attempts}
                                         onSelect={onAttemptSelect}
                                         selectedAttemptId={selectedAttemptId}
+                                        questionType={question.type}
                                     />
                                 )}
                             </div>

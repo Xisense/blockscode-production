@@ -2,12 +2,13 @@ import { Controller, Get, Put, Post, Delete, Body, UseGuards, Request, Param } f
 import { StudentService } from './student.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { OrgStatusGuard } from '../auth/guards/org-status.guard';
 import { Roles } from '../auth/roles.decorator';
 import { User } from '../auth/user.decorator';
 
 
 @Controller('student')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, OrgStatusGuard)
 @Roles('STUDENT')
 export class StudentController {
     constructor(private readonly studentService: StudentService) { }
@@ -29,7 +30,7 @@ export class StudentController {
 
     @Get('attempts')
     async getAttempts(@User() user: any) {
-        return this.studentService.getAttempts(user.id);
+        return this.studentService.getExamAttempts(user.id);
     }
 
     @Get('analytics')
@@ -53,13 +54,16 @@ export class StudentController {
     }
 
     @Post('bookmarks/:unitId')
-    async addBookmark(@User() user: any, @Param('unitId') unitId: string) {
-        return this.studentService.addBookmark(user.id, unitId);
+    async addBookmark(@User() user: any, @Param('unitId') unitId: string, @Body() data: any) {
+        return this.studentService.addBookmark(user.id, unitId, data);
     }
 
-    @Delete('bookmarks/:unitId')
-    async removeBookmark(@User() user: any, @Param('unitId') unitId: string) {
-        return this.studentService.removeBookmark(user.id, unitId);
+    @Delete('bookmarks/:bookmarkId')
+    async removeBookmark(@User() user: any, @Param('bookmarkId') bookmarkId: string) {
+        console.log('[StudentController] removeBookmark called');
+        console.log('[StudentController] user:', user?.id);
+        console.log('[StudentController] bookmarkId:', bookmarkId);
+        return this.studentService.removeBookmark(user.id, bookmarkId);
     }
 
     @Get('units/:unitId/submissions')

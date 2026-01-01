@@ -4,7 +4,7 @@ import { useRoleGuard } from "@/hooks/useRoleGuard";
 import Loading from "@/app/loading";
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
-    const { isAuthorized } = useRoleGuard(['STUDENT']);
+    const { isAuthorized } = useRoleGuard(['STUDENT', 'TEACHER']);
 
     if (!isAuthorized) return <Loading />;
 

@@ -7,6 +7,7 @@ import CourseDetailsView from "@/app/components/Features/Courses/CourseDetailsVi
 import { TeacherService } from "@/services/api/TeacherService";
 import { requireAuthClient } from "@/hooks/requireAuthClient";
 import Loading from "@/app/loading";
+import { AuthService } from "@/services/api/AuthService";
 
 export default function TeacherDashboardPage() {
     const [searchQuery, setSearchQuery] = useState("");
@@ -23,10 +24,14 @@ export default function TeacherDashboardPage() {
     const [recentParams, setRecentParams] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [authChecked, setAuthChecked] = useState(false);
+    const [userData, setUserData] = useState<any>(null);
 
     useEffect(() => {
         if (!requireAuthClient("/login")) return;
         setAuthChecked(true);
+        const user = AuthService.getUser();
+        setUserData(user);
+
         async function loadData() {
             try {
                 const [modulesData, statsData, recentData] = await Promise.all([
@@ -51,6 +56,8 @@ export default function TeacherDashboardPage() {
         .filter(m => m.title.toLowerCase().includes(searchQuery.toLowerCase()));
 
     if (!authChecked || loading) return <Loading />;
+
+    const canCreateCourses = userData?.features?.canCreateCourses !== false;
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans selection:bg-[var(--brand-light)] selection:text-[var(--brand-dark)]">
@@ -78,9 +85,16 @@ export default function TeacherDashboardPage() {
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                                     </span>
                                 </div>
-                                <Link href="/dashboard/teacher/courses/create" className="px-6 py-3 bg-[var(--brand)] text-white font-black text-sm rounded-2xl shadow-lg shadow-[var(--brand)]/20 hover:scale-105 transition-all active:scale-95">
-                                    Create New Module
-                                </Link>
+                                {canCreateCourses ? (
+                                    <Link href="/dashboard/teacher/courses/create" className="px-6 py-3 bg-[var(--brand)] text-white font-black text-sm rounded-2xl shadow-lg shadow-[var(--brand)]/20 hover:scale-105 transition-all active:scale-95">
+                                        Create New Module
+                                    </Link>
+                                ) : (
+                                    <div className="px-6 py-3 bg-slate-100 text-slate-400 font-black text-sm rounded-2xl flex items-center gap-3 cursor-not-allowed opacity-50 border border-slate-200">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                        Creation Locked
+                                    </div>
+                                )}
                             </div>
                         </div>
 

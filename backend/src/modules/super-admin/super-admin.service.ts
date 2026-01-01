@@ -58,12 +58,14 @@ export class SuperAdminService {
         }
 
         try {
+            console.log('[SuperAdminService] Creating organization with data:', JSON.stringify(data, null, 2));
+
             // 1. Create Organization
             const org = await this.prisma.organization.create({
                 data: {
                     name: data.name,
                     domain: data.domain,
-                    logo: data.logo,
+                    logo: data.logo || null,
                     status: data.status || 'Active',
 
                     // Limits
@@ -76,30 +78,30 @@ export class SuperAdminService {
                     plan: data.plan || 'Enterprise',
                     primaryColor: data.primaryColor || '#fc751b',
                     features: {
-                        canCreateExams: data.canCreateExams,
-                        allowAppExams: data.allowAppExams,
-                        allowAIProctoring: data.allowAIProctoring,
-                        canCreateCourses: data.canCreateCourses,
-                        allowCourseTests: data.allowCourseTests,
-                        canManageUsers: data.canManageUsers
+                        canCreateExams: data.canCreateExams !== undefined ? data.canCreateExams : true,
+                        allowAppExams: data.allowAppExams !== undefined ? data.allowAppExams : true,
+                        allowAIProctoring: data.allowAIProctoring !== undefined ? data.allowAIProctoring : true,
+                        canCreateCourses: data.canCreateCourses !== undefined ? data.canCreateCourses : true,
+                        allowCourseTests: data.allowCourseTests !== undefined ? data.allowCourseTests : true,
+                        canManageUsers: data.canManageUsers !== undefined ? data.canManageUsers : true
                     },
                     contact: {
-                        adminName: data.adminName,
-                        adminEmail: data.adminEmail,
-                        phone: data.phone,
-                        supportEmail: data.supportEmail,
-                        address: data.address,
-                        city: data.city,
-                        country: data.country
+                        adminName: data.adminName || null,
+                        adminEmail: data.adminEmail || null,
+                        phone: data.phone || null,
+                        supportEmail: data.supportEmail || null,
+                        address: data.address || null,
+                        city: data.city || null,
+                        country: data.country || null
                     }
                 }
             });
 
+            console.log('[SuperAdminService] Organization created successfully:', org.id);
+
             // 2. Create Admin User for this Org
-            if (data.adminEmail) {
-                // Use provided password or generate one
-                const passwordToUse = data.adminPassword || Math.random().toString(36).slice(-8);
-                const hashedPassword = await bcrypt.hash(passwordToUse, 10);
+            if (data.adminEmail && data.adminPassword) {
+                const hashedPassword = await bcrypt.hash(data.adminPassword, 10);
 
                 await this.prisma.user.create({
                     data: {
@@ -112,13 +114,17 @@ export class SuperAdminService {
                     }
                 });
 
-                // TODO: Send email with tempPassword to adminEmail
-                console.log(`[SuperAdmin] Created Admin ${data.adminEmail} with password: ${passwordToUse}`);
+                console.log(`[SuperAdmin] Created Admin ${data.adminEmail}`);
             }
 
             return org;
         } catch (error) {
-            console.error('[SuperAdminService] Create Organization Error:', error);
+            console.error('[SuperAdminService] Create Organization Error Details:', {
+                message: error.message,
+                code: error.code,
+                meta: error.meta,
+                stack: error.stack
+            });
             throw new BadRequestException('Failed to create organization. ' + error.message);
         }
     }
@@ -130,17 +136,56 @@ export class SuperAdminService {
         });
     }
 
+    async getUsers() {
+        return this.prisma.user.findMany({
+            include: {
+                organization: {
+                    select: { name: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 100 // Safety limit
+        });
+    }
+
+    async updateUser(id: string, data: any) {
+        // Only allow specific updates for safety
+        const safeData: any = {};
+        if (typeof data.isActive === 'boolean') safeData.isActive = data.isActive;
+        if (data.name) safeData.name = data.name;
+        if (data.role) safeData.role = data.role;
+
+        return this.prisma.user.update({
+            where: { id },
+            data: safeData
+        });
+    }
+
+    async deleteUser(id: string) {
+        // Check if user is the last super admin or something? 
+        // For now keep it simple but maybe add a check
+        const user = await this.prisma.user.findUnique({ where: { id } });
+        if (user?.role === 'SUPER_ADMIN') {
+            const count = await this.prisma.user.count({ where: { role: 'SUPER_ADMIN' } });
+            if (count <= 1) throw new BadRequestException('Cannot delete the last Super Admin.');
+        }
+
+        return this.prisma.user.delete({
+            where: { id }
+        });
+    }
+
     async deleteOrganization(id: string) {
         // Fetch all user IDs belonging to this org
         const users = await this.prisma.user.findMany({
             where: { orgId: id },
             select: { id: true }
         });
-        const userIds = users.map(u => u.id);
+        const userIds = users.map((u: any) => u.id);
 
         try {
             // Use transaction for manual cascade
-            await this.prisma.$transaction(async (tx) => {
+            await this.prisma.$transaction(async (tx: any) => {
                 // 1. Delete AuditLogs for these users
                 await tx.auditLog.deleteMany({
                     where: { userId: { in: userIds } }

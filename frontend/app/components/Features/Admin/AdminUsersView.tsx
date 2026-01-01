@@ -1,11 +1,12 @@
 "use client";
 import React, { useState } from "react";
 import Navbar from "@/app/components/Navbar";
-import { UserPlus, Search, Filter, Mail, UserMinus, ChevronRight, Laptop, Trash2, AlertTriangle, X, CheckCircle } from "lucide-react";
+import { UserPlus, Search, Filter, Mail, UserMinus, ChevronRight, Laptop, Trash2, AlertTriangle, X, CheckCircle, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import UserManagementModal from "@/app/components/Common/UserManagementModal";
 
 import { AdminService } from "@/services/api/AdminService";
+import { AuthService } from "@/services/api/AuthService";
 import { useEffect } from "react";
 import { useToast } from "@/app/components/Common/Toast";
 
@@ -19,8 +20,25 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
     const [userToDelete, setUserToDelete] = useState<any | null>(null);
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userData, setUserData] = useState<any>(null);
     const router = useRouter();
     const { success, error: toastError } = useToast();
+
+    useEffect(() => {
+        const user = AuthService.getUser();
+        setUserData(user);
+
+        async function load() {
+            try {
+                const data = await AdminService.getUsers();
+                setUsers(data);
+            } catch (e) { console.error(e); }
+            finally { setLoading(false); }
+        }
+        load();
+    }, []);
+
+    const canManageUsers = userData?.features?.canManageUsers !== false;
 
     const handleImpersonate = (user: any) => {
         // Save impersonation state
@@ -43,6 +61,7 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
     };
 
     const handleToggleStatus = async (user: any) => {
+        if (!canManageUsers) return;
         try {
             await AdminService.toggleUserStatus(user.id);
             setUsers(users.map(u => u.id === user.id ? { ...u, isActive: !u.isActive } : u));
@@ -56,17 +75,6 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
         }
     };
 
-    useEffect(() => {
-        async function load() {
-            try {
-                const data = await AdminService.getUsers();
-                setUsers(data);
-            } catch (e) { console.error(e); }
-            finally { setLoading(false); }
-        }
-        load();
-    }, []);
-
     const filteredUsers = users.filter(u =>
         u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -75,10 +83,6 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
-            {/* Navbar is typically global, but included here as per original file. 
-                In impersonation mode, Navbar might need adjustment or be hidden/replaced, 
-                but for now we keep it to match Admin Dashboard parity. 
-            */}
             <Navbar basePath={basePath} userRole="admin" />
 
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in">
@@ -88,13 +92,20 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
                         <p className="text-slate-400 font-bold text-sm mt-1">Manage institutional users and their platform access.</p>
                     </div>
                     <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => setIsUserModalOpen(true)}
-                            className="px-8 py-4 bg-[var(--brand)] text-white font-black text-sm rounded-2xl shadow-xl shadow-[var(--brand)]/20 flex items-center gap-3 hover:scale-105 transition-all active:scale-95"
-                        >
-                            <UserPlus size={18} />
-                            Add/Import Users
-                        </button>
+                        {canManageUsers ? (
+                            <button
+                                onClick={() => setIsUserModalOpen(true)}
+                                className="px-8 py-4 bg-[var(--brand)] text-white font-black text-sm rounded-2xl shadow-xl shadow-[var(--brand)]/20 flex items-center gap-3 hover:scale-105 transition-all active:scale-95"
+                            >
+                                <UserPlus size={18} />
+                                Add/Import Users
+                            </button>
+                        ) : (
+                            <div className="px-8 py-4 bg-slate-100 text-slate-400 font-black text-sm rounded-2xl flex items-center gap-3 cursor-not-allowed opacity-50 border border-slate-200">
+                                <Lock size={18} />
+                                Management Locked
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -108,6 +119,7 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-12 pr-4 py-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-[var(--brand)] shadow-sm transition-all"
+                            disabled={!canManageUsers && filteredUsers.length === 0}
                         />
                     </div>
                     <div className="flex gap-2">
@@ -162,19 +174,19 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
                                                     <Mail size={18} />
                                                 </button>
                                                 <button
-                                                    onClick={() => handleToggleStatus(user)}
-                                                    className={`p-2 transition-all rounded-xl ${user.isActive
+                                                    onClick={() => canManageUsers && handleToggleStatus(user)}
+                                                    className={`p-2 transition-all rounded-xl ${!canManageUsers ? 'opacity-30 cursor-not-allowed text-slate-300' : user.isActive
                                                         ? "text-slate-300 hover:text-amber-600 hover:bg-amber-50"
                                                         : "text-amber-600 bg-amber-50 hover:bg-amber-100"
                                                         }`}
-                                                    title={user.isActive ? "Suspend User" : "Activate User"}
+                                                    title={!canManageUsers ? "Management Locked" : user.isActive ? "Suspend User" : "Activate User"}
                                                 >
                                                     {user.isActive ? <UserMinus size={18} /> : <CheckCircle size={18} />}
                                                 </button>
                                                 <button
-                                                    onClick={() => setUserToDelete(user)}
-                                                    className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                                                    title="Delete User"
+                                                    onClick={() => canManageUsers && setUserToDelete(user)}
+                                                    className={`p-2 transition-all rounded-xl ${!canManageUsers ? 'opacity-30 cursor-not-allowed text-slate-300' : 'text-slate-300 hover:text-rose-600 hover:bg-rose-50'}`}
+                                                    title={!canManageUsers ? "Management Locked" : "Delete User"}
                                                 >
                                                     <Trash2 size={18} />
                                                 </button>

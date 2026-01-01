@@ -58,6 +58,13 @@ export default function CreateOrganizationView() {
                 status: 'Active',
                 // Branding
                 primaryColor: formData.primaryColor,
+                // Feature Permissions
+                canCreateExams: formData.canCreateExams,
+                allowAppExams: formData.allowAppExams,
+                allowAIProctoring: formData.allowAIProctoring,
+                canCreateCourses: formData.canCreateCourses,
+                allowCourseTests: formData.allowCourseTests,
+                canManageUsers: formData.canManageUsers,
                 // Contact (for future use)
                 adminName: formData.adminName,
                 adminEmail: formData.adminEmail,

@@ -11,13 +11,17 @@ export class StudentService {
             where: { userId, status: 'COMPLETED' }
         });
 
-        // Calculate average score
+        // Calculate average score - only from published results
         const sessionsWithScore = await this.prisma.examSession.findMany({
-            where: { userId, score: { not: null } },
+            where: {
+                userId,
+                score: { not: null },
+                exam: { resultsPublished: true }
+            },
             select: { score: true }
         });
 
-        const totalScore = sessionsWithScore.reduce((acc, curr) => acc + (curr.score || 0), 0);
+        const totalScore = sessionsWithScore.reduce((acc: number, curr: any) => acc + (curr.score || 0), 0);
         const averageScore = sessionsWithScore.length > 0 ? Math.round(totalScore / sessionsWithScore.length) : 0;
 
         // Calculate daily streak
@@ -56,7 +60,7 @@ export class StudentService {
 
         // Count consecutive days
         const activityDates = new Set(
-            sessions.map(s => {
+            sessions.map((s: any) => {
                 const d = new Date(s.createdAt);
                 d.setHours(0, 0, 0, 0);
                 return d.getTime();
@@ -92,7 +96,7 @@ export class StudentService {
             }
         });
 
-        return exams.map(exam => {
+        return exams.map((exam: any) => {
             const session = exam.submissions[0]; // Gets the user's session if exists
             let percent = 0;
             if (session?.status === 'COMPLETED') percent = 100;
@@ -137,12 +141,12 @@ export class StudentService {
         if (!user) return [];
 
         // Calculate progress for each course
-        return user.courses.map(course => {
-            const totalUnits = course.modules.reduce((sum, mod) => sum + mod.units.length, 0);
+        return user.courses.map((course: any) => {
+            const totalUnits = course.modules.reduce((sum: number, mod: any) => sum + mod.units.length, 0);
             const totalTests = (course as any).tests?.length || 0;
-            const completedUnitIds = new Set(user.unitSubmissions.map(sub => sub.unitId));
-            const completedCount = course.modules.reduce((sum, mod) =>
-                sum + mod.units.filter(u => completedUnitIds.has(u.id)).length, 0
+            const completedUnitIds = new Set(user.unitSubmissions.map((sub: any) => sub.unitId));
+            const completedCount = course.modules.reduce((sum: number, mod: any) =>
+                sum + mod.units.filter((u: any) => completedUnitIds.has(u.id)).length, 0
             );
             const percent = totalUnits > 0 ? Math.round((completedCount / totalUnits) * 100) : 0;
 
@@ -166,15 +170,17 @@ export class StudentService {
         });
     }
 
-    async getAttempts(userId: string) {
-        // Get all exam sessions (attempts) for the student
+    async getExamAttempts(userId: string) {
         const sessions = await this.prisma.examSession.findMany({
-            where: { userId },
+            where: {
+                userId,
+                exam: { resultsPublished: true }
+            },
             include: {
                 exam: {
                     select: {
                         title: true,
-                        slug: true,
+                        resultsPublished: true,
                         duration: true
                     }
                 }
@@ -182,15 +188,56 @@ export class StudentService {
             orderBy: { createdAt: 'desc' }
         });
 
-        return sessions.map(session => ({
-            id: session.id,
-            examTitle: session.exam.title,
-            examSlug: session.exam.slug,
-            status: session.status,
-            score: session.score,
-            duration: session.exam.duration,
-            startedAt: session.createdAt,
-            submittedAt: session.endTime
+        return sessions.map((session: any) => {
+            const isPublished = session.exam.resultsPublished;
+            const startTime = new Date(session.startTime).getTime();
+            const endTime = session.endTime ? new Date(session.endTime).getTime() : Date.now();
+            const durationMins = Math.round((endTime - startTime) / 60000);
+
+            return {
+                id: session.id,
+                examTitle: session.exam.title,
+                score: isPublished ? (session.score !== null ? session.score : 'Pending') : 'Hidden',
+                duration: durationMins,
+                startedAt: session.startTime,
+                submittedAt: session.endTime,
+                status: session.status,
+                isPublished
+            };
+        });
+    }
+
+    async getDetailedUnitSubmissions(userId: string) {
+        const submissions = await this.prisma.unitSubmission.findMany({
+            where: { userId },
+            include: {
+                unit: {
+                    select: {
+                        title: true,
+                        type: true,
+                        module: {
+                            select: {
+                                course: {
+                                    select: { title: true }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        return submissions.map((sub: any) => ({
+            id: sub.id,
+            unitId: sub.unitId,
+            unitTitle: sub.unit.title,
+            unitType: sub.unit.type,
+            courseTitle: sub.unit.module.course.title,
+            status: sub.status,
+            score: sub.score,
+            createdAt: sub.createdAt,
+            updatedAt: sub.updatedAt
         }));
     }
 
@@ -225,12 +272,12 @@ export class StudentService {
             const nextDate = new Date(date);
             nextDate.setDate(nextDate.getDate() + 1);
 
-            const daySubmissions = submissions.filter(s => {
+            const daySubmissions = submissions.filter((s: any) => {
                 const subDate = new Date(s.createdAt);
                 return subDate >= date && subDate < nextDate;
             });
 
-            const passed = daySubmissions.filter(s => s.status === 'COMPLETED').length;
+            const passed = daySubmissions.filter((s: any) => s.status === 'COMPLETED').length;
             const failed = daySubmissions.length - passed;
 
             weeklyActivity.push({
@@ -241,22 +288,24 @@ export class StudentService {
             });
         }
 
-        // Calculate course mastery
-        const courseStats: Record<string, { total: number; completed: number }> = {};
-        submissions.forEach(sub => {
+        // Calculate course mastery (unique units)
+        const courseStats: Record<string, { units: Set<string>; completedUnits: Set<string> }> = {};
+        submissions.forEach((sub: any) => {
             const courseName = sub.unit.module.course.title;
             if (!courseStats[courseName]) {
-                courseStats[courseName] = { total: 0, completed: 0 };
+                courseStats[courseName] = { units: new Set(), completedUnits: new Set() };
             }
-            courseStats[courseName].total++;
+            courseStats[courseName].units.add(sub.unitId);
             if (sub.status === 'COMPLETED') {
-                courseStats[courseName].completed++;
+                courseStats[courseName].completedUnits.add(sub.unitId);
             }
         });
 
+        const uniqueUnits = new Set(submissions.map((s: any) => s.unitId));
+
         const courseMastery = Object.entries(courseStats).map(([subject, stats]) => ({
             subject: subject.substring(0, 15), // Truncate for display
-            A: Math.round((stats.completed / stats.total) * 150), // Current proficiency
+            A: Math.round((stats.completedUnits.size / stats.units.size) * 150), // Current proficiency based on completion
             B: 130, // Benchmark
             fullMark: 150
         }));
@@ -265,11 +314,11 @@ export class StudentService {
             weeklyActivity,
             courseMastery,
             stats: {
-                totalQuestions: submissions.length,
+                totalQuestions: uniqueUnits.size,
                 totalAttempts: submissions.length,
-                passedAttempts: submissions.filter(s => s.status === 'COMPLETED').length,
+                passedAttempts: submissions.filter((s: any) => s.status === 'COMPLETED').length,
                 successRate: submissions.length > 0
-                    ? Math.round((submissions.filter(s => s.status === 'COMPLETED').length / submissions.length) * 100)
+                    ? Math.round((submissions.filter((s: any) => s.status === 'COMPLETED').length / submissions.length) * 100)
                     : 0
             }
         };
@@ -329,34 +378,87 @@ export class StudentService {
 
         return bookmarks.map((b: any) => ({
             id: b.id,
-            unitId: b.unitId,
-            unitTitle: b.unit.title,
-            unitType: b.unit.type,
-            moduleTitle: b.unit.module.title,
-            courseTitle: b.unit.module.course.title,
+            unitId: b.customId, // Use customId for frontend links
+            unitTitle: b.unit?.title || b.title || 'Untitled',
+            unitType: b.unit?.type || b.type || 'Reading',
+            moduleTitle: b.unit?.module?.title || b.moduleTitle || 'Miscellaneous',
+            courseTitle: b.unit?.module?.course?.title || b.courseTitle || 'System',
             bookmarkedAt: b.createdAt
         }));
     }
 
-    async addBookmark(userId: string, unitId: string) {
+    async addBookmark(userId: string, unitId: string, metadata?: { title?: string, type?: string, moduleTitle?: string, courseTitle?: string }) {
+        // Find if this unitId exists in the Unit table for the FK
+        const unit = await this.prisma.unit.findUnique({ where: { id: unitId } });
+
         return this.prisma.bookmark.upsert({
             where: {
-                userId_unitId: { userId, unitId }
+                userId_customId: { userId, customId: unitId }
             },
-            update: {},
+            update: {
+                unitId: unit ? unit.id : null,
+                title: metadata?.title,
+                type: metadata?.type,
+                moduleTitle: metadata?.moduleTitle,
+                courseTitle: metadata?.courseTitle
+            },
             create: {
                 userId,
-                unitId
+                customId: unitId,
+                unitId: unit ? unit.id : null,
+                title: metadata?.title,
+                type: metadata?.type,
+                moduleTitle: metadata?.moduleTitle,
+                courseTitle: metadata?.courseTitle
             }
         });
     }
 
-    async removeBookmark(userId: string, unitId: string) {
-        return this.prisma.bookmark.delete({
-            where: {
-                userId_unitId: { userId, unitId }
+    async removeBookmark(userId: string, bookmarkId: string) {
+        console.log('[StudentService] removeBookmark called');
+        console.log('[StudentService] userId:', userId);
+        console.log('[StudentService] bookmarkId:', bookmarkId);
+
+        try {
+            // First, check if this is a bookmark ID or customId
+            // Try to find bookmark by ID first
+            const bookmark = await this.prisma.bookmark.findUnique({
+                where: { id: bookmarkId }
+            });
+
+            console.log('[StudentService] Bookmark found by ID:', bookmark ? 'Yes' : 'No');
+
+            if (bookmark) {
+                console.log('[StudentService] Bookmark data:', bookmark);
+                // Verify ownership
+                if (bookmark.userId !== userId) {
+                    console.log('[StudentService] ❌ Ownership mismatch');
+                    throw new Error('Unauthorized: Bookmark does not belong to user');
+                }
+                // Delete by ID
+                console.log('[StudentService] Deleting bookmark by ID...');
+                const result = await this.prisma.bookmark.delete({
+                    where: { id: bookmarkId }
+                });
+                console.log('[StudentService] ✅ Bookmark deleted successfully');
+                return result;
+            } else {
+                // Try as customId (backward compatibility)
+                console.log('[StudentService] Trying to delete by customId...');
+                const result = await this.prisma.bookmark.delete({
+                    where: {
+                        userId_customId: { userId, customId: bookmarkId }
+                    }
+                });
+                console.log('[StudentService] ✅ Bookmark deleted by customId');
+                return result;
             }
-        });
+        } catch (error) {
+            console.error('[StudentService] ❌ Error removing bookmark:', error);
+            console.error('[StudentService] Error message:', error.message);
+            console.error('[StudentService] Error code:', error.code);
+            throw error;
+        }
     }
 
     async getUnitSubmissions(userId: string, unitId: string) {

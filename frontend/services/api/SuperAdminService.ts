@@ -99,5 +99,54 @@ export const SuperAdminService = {
             console.error('[SuperAdminService] Error', error);
             throw error;
         }
+    },
+
+    async getUsers() {
+        try {
+            const res = await fetch(`${BASE_URL}/super-admin/users`, {
+                headers: getHeaders()
+            });
+            if (!res.ok) throw new Error('Failed to fetch users');
+            return await res.json();
+        } catch (error) {
+            console.error('[SuperAdminService] Error', error);
+            throw error;
+        }
+    },
+
+    async updateUser(id: string, data: any) {
+        try {
+            const res = await fetch(`${BASE_URL}/super-admin/users/${id}`, {
+                method: 'PUT',
+                headers: getHeaders(),
+                body: JSON.stringify(data)
+            });
+            if (!res.ok) throw new Error('Failed to update user');
+            return await res.json();
+        } catch (error) {
+            console.error('[SuperAdminService] Error', error);
+            throw error;
+        }
+    },
+
+    async deleteUser(id: string) {
+        try {
+            const headers = getHeaders();
+            // @ts-ignore
+            delete headers['Content-Type'];
+
+            const res = await fetch(`${BASE_URL}/super-admin/users/${id}`, {
+                method: 'DELETE',
+                headers: headers
+            });
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.message || 'Failed to delete user');
+            }
+            return await res.json();
+        } catch (error) {
+            console.error('[SuperAdminService] Error', error);
+            throw error;
+        }
     }
 };

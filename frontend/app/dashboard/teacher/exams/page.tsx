@@ -6,14 +6,19 @@ import Loading from '@/app/loading';
 import { Eye, Lock } from "lucide-react";
 import ExamDetailsModal from "@/app/components/Features/Exams/ExamDetailsModal";
 import { TeacherService } from "@/services/api/TeacherService";
+import { AuthService } from "@/services/api/AuthService";
 
-export default function TeacherExamsPage({ orgPermissions = { canCreateExams: true } }: { orgPermissions?: { canCreateExams?: boolean } }) {
+export default function TeacherExamsPage() {
     const [activeTab, setActiveTab] = useState("all");
     const [viewingExam, setViewingExam] = useState<any>(null);
     const [exams, setExams] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userData, setUserData] = useState<any>(null);
 
     useEffect(() => {
+        const user = AuthService.getUser();
+        setUserData(user);
+
         async function load() {
             try {
                 const data = await TeacherService.getExams();
@@ -26,6 +31,8 @@ export default function TeacherExamsPage({ orgPermissions = { canCreateExams: tr
         }
         load();
     }, []);
+
+    const orgPermissions = userData?.features || { canCreateExams: true };
 
     const filteredExams = exams.filter(e => {
         if (activeTab === 'all') return true;

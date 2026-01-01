@@ -4,6 +4,7 @@ import Navbar from "@/app/components/Navbar";
 import { AuthService } from "@/services/api/AuthService";
 import { useToast } from "@/app/components/Common/Toast";
 import { useRouter } from "next/navigation";
+import Loading from "@/app/loading";
 
 export default function SuperAdminProfilePage() {
     const [activeTab, setActiveTab] = useState<'general' | 'security'>('general');
@@ -90,16 +91,7 @@ export default function SuperAdminProfilePage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-slate-50/50">
-                <Navbar />
-                <div className="flex items-center justify-center h-[60vh]">
-                    <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-            </div>
-        );
-    }
+    if (loading) return <Loading />;
 
     return (
         <div className="min-h-screen bg-slate-50/50 font-inter">

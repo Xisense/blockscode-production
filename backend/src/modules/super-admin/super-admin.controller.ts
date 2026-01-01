@@ -39,4 +39,19 @@ export class SuperAdminController {
     async deleteOrganization(@Param('id') id: string) {
         return this.superAdminService.deleteOrganization(id);
     }
+
+    @Get('users')
+    async getUsers() {
+        return this.superAdminService.getUsers();
+    }
+
+    @Put('users/:id')
+    async updateUser(@Param('id') id: string, @Body() data: any) {
+        return this.superAdminService.updateUser(id, data);
+    }
+
+    @Delete('users/:id')
+    async deleteUser(@Param('id') id: string) {
+        return this.superAdminService.deleteUser(id);
+    }
 }

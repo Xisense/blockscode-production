@@ -123,6 +123,20 @@ export class MonitoringGateway
         },
         @ConnectedSocket() client: Socket,
     ) {
+        const examSession = await this.prisma.examSession.findUnique({
+            where: { id: data.sessionId },
+            include: {
+                violations: {
+                    where: { type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT', 'TAB_SWITCH_IN'] } }
+                }
+            }
+        });
+
+        // 1. BLOCK violations if session is already completed or terminated
+        if (!examSession || examSession.status === 'COMPLETED' || examSession.status === 'TERMINATED') {
+            return { status: 'rejected', reason: 'Session inactive' };
+        }
+
         // Save to DB
         await this.prisma.violation.create({
             data: {
@@ -134,21 +148,12 @@ export class MonitoringGateway
             }
         });
 
-        const examSession = await this.prisma.examSession.findUnique({
-            where: { id: data.sessionId },
-            include: {
-                violations: {
-                    where: { type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT', 'TAB_SWITCH_IN'] } }
-                }
-            }
-        });
+        let tabSwitchOutCount = examSession.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
+        let tabSwitchInCount = examSession.violations.filter((v: any) => v.type === 'TAB_SWITCH_IN').length;
 
-        let tabSwitchOutCount = 0;
-        let tabSwitchInCount = 0;
-        if (examSession) {
-            tabSwitchOutCount = examSession.violations.filter(v => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
-            tabSwitchInCount = examSession.violations.filter(v => v.type === 'TAB_SWITCH_IN').length;
-        }
+        // Since we just created a new one, increment the relevant count
+        if (data.type === 'TAB_SWITCH' || data.type === 'TAB_SWITCH_OUT') tabSwitchOutCount++;
+        if (data.type === 'TAB_SWITCH_IN') tabSwitchInCount++;
 
         this.server
             .to(`exam_${data.examId}_monitor`)
@@ -228,5 +233,25 @@ export class MonitoringGateway
         );
 
         return { status: 'ok' };
+    }
+
+    async forceTerminate(examId: string, userId: string) {
+        // 1. Broadcast error to student rooms
+        const studentRoom = `student_${userId}_exam_${examId}`;
+        this.server.to(studentRoom).emit('error', {
+            message: 'EXAM_TERMINATED'
+        });
+
+        // 2. Disconnect sockets
+        const sockets = await this.server.in(studentRoom).fetchSockets();
+        for (const s of sockets) {
+            s.disconnect(true);
+        }
+
+        // 3. Clear Redis
+        await this.redis.del(`exam:${examId}:student:${userId}:online`);
+        this.activeConnections.forEach((uid, sid) => {
+            if (uid === userId) this.activeConnections.delete(sid);
+        });
     }
 }

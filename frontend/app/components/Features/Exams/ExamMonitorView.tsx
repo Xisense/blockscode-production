@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import Navbar from "@/app/components/Navbar";
 import { TeacherService, Student } from "@/services/api/TeacherService";
 import Loading from "@/app/loading";
+import { useToast } from "@/app/components/Common/Toast";
 
 interface Feedback {
     id: string;
@@ -21,6 +22,7 @@ interface ExamMonitorViewProps {
 
 export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMonitorViewProps) {
     const [view, setView] = useState<'monitor' | 'feedback'>('monitor');
+    const { success, error } = useToast();
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
     const [students, setStudents] = useState<Student[]>([]);
@@ -149,15 +151,15 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
                                                         <div className="flex-1 min-w-0">
                                                             <p className="text-sm font-black text-slate-800 leading-none truncate mb-1">{student.name}</p>
                                                             <div className="flex items-center gap-2">
-                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{student.id}</span>
+                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{student.rollNumber}</span>
                                                                 <span className="text-[10px] font-bold text-slate-300">•</span>
-                                                                <span className="text-[10px] font-bold text-slate-400">{student.ip}</span>
+                                                                <span className="text-[10px] font-bold text-slate-400 truncate">{student.email}</span>
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </td>
                                                 <td className="px-4 py-5 text-center">
-                                                    <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest inline-block ${student.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : `bg-[var(--brand-light)] ${activeTextClass} animate-pulse`}`}>
+                                                    <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest inline-block ${student.status === 'Completed' ? 'bg-emerald-50 text-emerald-600' : student.status === 'Terminated' ? 'bg-rose-50 text-rose-600' : `bg-[var(--brand-light)] ${activeTextClass} animate-pulse`}`}>
                                                         {student.status}
                                                     </span>
                                                     <p className="text-[11px] font-black text-slate-500 uppercase mt-1.5">{student.lastActivity}</p>
@@ -186,7 +188,11 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
                                                         >
                                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
                                                         </button>
-                                                        <button className="p-2 bg-white border border-slate-100 rounded-lg text-slate-400 hover:text-rose-600 hover:border-rose-100 transition-all shadow-sm" title="Force Terminate Session">
+                                                        <button
+                                                            onClick={() => setSelectedStudent(student)}
+                                                            className="p-2 bg-white border border-slate-100 rounded-lg text-slate-400 hover:text-rose-600 hover:border-rose-100 transition-all shadow-sm"
+                                                            title="Force Terminate Session"
+                                                        >
                                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
                                                         </button>
                                                     </div>
@@ -353,8 +359,37 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
 
                         {/* Modal Footer */}
                         <div className="p-8 border-t border-slate-100 bg-white flex justify-end">
-                            <button className="px-10 py-3.5 bg-rose-600 text-white font-black text-[11px] uppercase tracking-[0.1em] rounded-2xl hover:scale-105 transition-all shadow-xl shadow-rose-200 active:scale-95">
-                                Terminate & Block Session
+                            <button
+                                onClick={async () => {
+                                    if (selectedStudent.status === 'Terminated') {
+                                        if (confirm('Are you sure you want to un-terminate this session? The student will be able to log in again.')) {
+                                            try {
+                                                await TeacherService.unterminateSession(examId, selectedStudent.id);
+                                                success(`Session for ${selectedStudent.name} restored successfully`);
+                                                setSelectedStudent(null);
+                                                const studentData = await TeacherService.getMonitoredStudents(examId);
+                                                setStudents(studentData);
+                                            } catch (e) {
+                                                error('Failed to un-terminate session');
+                                            }
+                                        }
+                                    } else {
+                                        if (confirm('Are you sure you want to terminate this student session? They will be logged out immediately.')) {
+                                            try {
+                                                await TeacherService.terminateSession(examId, selectedStudent.id);
+                                                success(`Session for ${selectedStudent.name} terminated successfully`);
+                                                setSelectedStudent(null);
+                                                const studentData = await TeacherService.getMonitoredStudents(examId);
+                                                setStudents(studentData);
+                                            } catch (e) {
+                                                error('Failed to terminate session');
+                                            }
+                                        }
+                                    }
+                                }}
+                                className={`px-10 py-3.5 text-white font-black text-[11px] uppercase tracking-[0.1em] rounded-2xl hover:scale-105 transition-all shadow-xl active:scale-95 ${selectedStudent.status === 'Terminated' ? 'bg-emerald-600 shadow-emerald-200' : 'bg-rose-600 shadow-rose-200'}`}
+                            >
+                                {selectedStudent.status === 'Terminated' ? 'Restore & Unblock Session' : 'Terminate & Block Session'}
                             </button>
                         </div>
                     </div>

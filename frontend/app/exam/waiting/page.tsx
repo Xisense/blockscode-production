@@ -2,15 +2,22 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BRAND } from '../../constants/brand';
+import { useOrganization } from '../../context/OrganizationContext';
 
 export default function ExamWaitingRoom() {
     const router = useRouter();
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
     const slug = searchParams?.get('slug');
+    const { organization: orgContext } = useOrganization();
 
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [examTitle, setExamTitle] = useState('Exam');
     const [loading, setLoading] = useState(true);
+
+    // Use organization branding if available, otherwise fallback to BRAND
+    const displayName = orgContext?.name || BRAND.name;
+    const displayLogo = orgContext?.logo || BRAND.logoImage;
+    const showSuffix = !orgContext; // Hide suffix if custom branding
 
     useEffect(() => {
         if (!slug) {
@@ -88,16 +95,16 @@ export default function ExamWaitingRoom() {
             {/* Minimal Header with Logo */}
             <div className="absolute top-0 left-0 w-full p-8 z-20">
                 <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-lg bg-[var(--brand)] flex items-center justify-center overflow-hidden shrink-0">
-                        {BRAND.logoImage ? (
-                            <img src={BRAND.logoImage} alt="Logo" className="w-full h-full object-cover" />
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden shrink-0 ${!displayLogo ? 'bg-[var(--brand)]' : ''}`}>
+                        {displayLogo ? (
+                            <img src={displayLogo} alt="Logo" className="w-full h-full object-contain p-0.5" />
                         ) : (
                             <span className="text-white font-black text-xs">{BRAND.logoText}</span>
                         )}
                     </div>
                     <span className="text-2xl font-black text-slate-800 tracking-tighter">
-                        {BRAND.name}
-                        <span className="text-[var(--brand)]">{BRAND.suffix}</span>
+                        {displayName}
+                        {showSuffix && <span className="text-[var(--brand)]">{BRAND.suffix}</span>}
                     </span>
                 </div>
             </div>
@@ -133,7 +140,9 @@ export default function ExamWaitingRoom() {
             </div>
 
             <div className="absolute bottom-6 w-full text-center">
-                <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest opacity-60">{BRAND.name} {BRAND.suffix} © {new Date().getFullYear()}</p>
+                <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest opacity-60">
+                    {displayName} {showSuffix && BRAND.suffix} © {new Date().getFullYear()}
+                </p>
             </div>
         </div>
     );

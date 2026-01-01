@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Loading from '@/app/loading';
 import AlertModal from '@/app/components/Common/AlertModal';
 import { useState } from 'react';
+import { AuthService } from '@/services/api/AuthService';
 
 interface ExamEditorProps {
     initialData?: any;
@@ -15,6 +16,11 @@ interface ExamEditorProps {
 export default function ExamEditor({ initialData, userRole = 'teacher', basePath = '/dashboard/teacher' }: ExamEditorProps) {
     const router = useRouter();
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
+    const [userData, setUserData] = useState<any>(null);
+
+    React.useEffect(() => {
+        setUserData(AuthService.getUser());
+    }, []);
 
     const handleDelete = () => {
         setAlertConfig({
@@ -29,7 +35,13 @@ export default function ExamEditor({ initialData, userRole = 'teacher', basePath
     return (
         <Suspense fallback={<Loading />}>
             <div className="min-h-screen bg-white">
-                <ExamBuilder initialData={initialData} onDelete={handleDelete} basePath={basePath} userRole={userRole === 'admin' ? 'admin' : 'teacher'} />
+                <ExamBuilder
+                    initialData={initialData}
+                    onDelete={handleDelete}
+                    basePath={basePath}
+                    userRole={userRole === 'admin' ? 'admin' : 'teacher'}
+                    orgPermissions={userData?.features}
+                />
             </div>
             <AlertModal
                 isOpen={alertConfig.isOpen}

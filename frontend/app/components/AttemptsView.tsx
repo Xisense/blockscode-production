@@ -3,41 +3,90 @@ import React, { useState } from 'react';
 
 export interface Attempt {
     id: string;
-    timestamp: string;
-    testCases: string;
-    status: 'success' | 'failed' | 'error';
-    answer?: any; // The answer submitted in this attempt
+    createdAt?: string | Date;
+    timestamp?: string;
+    status: string;
+    score?: number;
+    testCases?: string;
+    content?: any;
+    answer?: any;
 }
-
-const defaultAttempts: Attempt[] = [
-    { id: '1', timestamp: '2/1/2023 | 11:01 AM', testCases: '1 / 1', status: 'success', answer: 'console.log("Success");' },
-    { id: '2', timestamp: '2/1/2023 | 11:01 AM', testCases: '0 / 1', status: 'failed', answer: 'console.log("Fail");' },
-    // ... other defaults updated if needed, but these are just mocks
-];
 
 interface AttemptsViewProps {
     attempts?: Attempt[];
     hideFilter?: boolean;
     onSelect?: (attempt: Attempt) => void;
     selectedAttemptId?: string;
+    questionType?: 'MCQ' | 'MultiSelect' | 'Coding' | 'Web' | 'Reading' | 'Notebook';
 }
 
 export default function AttemptsView({
-    attempts = defaultAttempts,
+    attempts = [],
     hideFilter = false,
     onSelect,
-    selectedAttemptId
+    selectedAttemptId,
+    questionType
 }: AttemptsViewProps) {
     const [filter, setFilter] = useState<'all' | 'failed' | 'success' | 'error'>('all');
 
-    const counts = {
-        all: attempts.length,
-        failed: attempts.filter(a => a.status === 'failed').length,
-        success: attempts.filter(a => a.status === 'success').length,
-        error: attempts.filter(a => a.status === 'error').length,
+    const getDisplayStatus = (attempt: Attempt) => {
+        const status = attempt.status;
+        const score = attempt.score ?? 0;
+
+        if (questionType === 'MCQ' || questionType === 'MultiSelect') {
+            return score === 100 ? 'success' : 'failed';
+        }
+        if (questionType === 'Coding') {
+            if (score === 100) return 'success';
+            if (score > 0) return 'failed';
+            return 'error';
+        }
+        if (questionType === 'Web' || questionType === 'Notebook' || status === 'COMPLETED') {
+            return 'success';
+        }
+        return status.toLowerCase() as any;
     };
 
-    const filteredAttempts = attempts.filter(a => filter === 'all' || a.status === filter);
+    const getStatusText = (attempt: Attempt) => {
+        const displayStatus = getDisplayStatus(attempt);
+        if (questionType === 'Web' || questionType === 'Notebook' || questionType === 'Reading') {
+            return 'Completed';
+        }
+        if (displayStatus === 'success') return 'Success';
+        if (displayStatus === 'failed') return 'Failed';
+        if (displayStatus === 'error') return 'Error';
+        return attempt.status;
+    };
+
+    const formatTimestamp = (attempt: Attempt) => {
+        const date = attempt.createdAt ? new Date(attempt.createdAt) : (attempt.timestamp ? new Date(attempt.timestamp) : new Error());
+        if (date instanceof Error) return 'Unknown Date';
+        return date.toLocaleString('en-US', {
+            month: 'numeric',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        }).replace(',', ' |');
+    };
+
+    const sortedAttempts = [...attempts].sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+    });
+
+    const filteredAttempts = sortedAttempts
+        .map(a => ({ ...a, displayStatus: getDisplayStatus(a) }))
+        .filter(a => filter === 'all' || a.displayStatus === filter);
+
+    const counts = {
+        all: attempts.length,
+        failed: attempts.filter(a => getDisplayStatus(a) === 'failed').length,
+        success: attempts.filter(a => getDisplayStatus(a) === 'success').length,
+        error: attempts.filter(a => getDisplayStatus(a) === 'error').length,
+    };
 
     return (
         <div className="flex flex-col h-full bg-white overflow-hidden">
@@ -54,7 +103,7 @@ export default function AttemptsView({
                             <option value="all">ALL ({counts.all})</option>
                             <option value="failed">Failed ({counts.failed})</option>
                             <option value="success">Successful ({counts.success})</option>
-                            <option value="error">Compile error ({counts.error})</option>
+                            <option value="error">Error ({counts.error})</option>
                         </select>
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 transition-transform group-hover:text-[var(--brand)]">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
@@ -72,35 +121,51 @@ export default function AttemptsView({
 
             {/* Attempts List */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-                {filteredAttempts.map((attempt) => (
-                    <div
-                        key={attempt.id}
-                        onClick={() => onSelect?.(attempt)}
-                        className={`
-                            flex px-8 py-4 border-b border-slate-50 transition-all group cursor-pointer
-                            ${selectedAttemptId === attempt.id ? 'bg-indigo-50/50 border-indigo-100' : 'hover:bg-slate-50'}
-                        `}
-                    >
-                        <div className="flex-[2] flex flex-col gap-1">
-                            <span className="text-[13px] font-medium text-slate-600">
-                                {attempt.timestamp}
-                            </span>
-                            {selectedAttemptId === attempt.id && (
-                                <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 w-fit px-1.5 py-0.5 rounded-md border border-indigo-100">
-                                    Viewing Now
-                                </span>
-                            )}
+                {filteredAttempts.map((attempt) => {
+                    const displayStatus = (attempt as any).displayStatus;
+                    const statusText = getStatusText(attempt);
+                    const attemptNumber = attempts.length - (sortedAttempts.indexOf(attempt));
+
+                    return (
+                        <div
+                            key={attempt.id}
+                            onClick={() => onSelect?.(attempt)}
+                            className={`
+                                flex px-8 py-4 border-b border-slate-50 transition-all group cursor-pointer
+                                ${selectedAttemptId === attempt.id ? 'bg-indigo-50/50 border-indigo-100' : 'hover:bg-slate-50'}
+                            `}
+                        >
+                            <div className="flex-[2] flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded min-w-[30px] text-center">
+                                        #{attemptNumber}
+                                    </span>
+                                    <span className="text-[13px] font-medium text-slate-600">
+                                        {formatTimestamp(attempt)}
+                                    </span>
+                                </div>
+                                {selectedAttemptId === attempt.id && (
+                                    <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 w-fit px-1.5 py-0.5 rounded-md border border-indigo-100 ml-10">
+                                        Viewing Now
+                                    </span>
+                                )}
+                            </div>
+                            <div className={`flex-1 text-center text-[13px] font-bold ${displayStatus === 'success' ? 'text-emerald-500' : 'text-rose-400'}`}>
+                                {attempt.testCases || (attempt.score !== undefined ? `${attempt.score === 100 ? '1 / 1' : '0 / 1'}` : '-')}
+                            </div>
+                            <div className={`flex-1 text-right text-[13px] font-bold capitalize ${displayStatus === 'success' ? 'text-emerald-500' :
+                                displayStatus === 'failed' ? 'text-rose-500' : 'text-orange-500'
+                                }`}>
+                                {statusText}
+                            </div>
                         </div>
-                        <div className={`flex-1 text-center text-[13px] font-bold ${attempt.status === 'success' ? 'text-emerald-500' : 'text-rose-400'}`}>
-                            {attempt.testCases}
-                        </div>
-                        <div className={`flex-1 text-right text-[13px] font-bold capitalize ${attempt.status === 'success' ? 'text-emerald-500' :
-                            attempt.status === 'failed' ? 'text-rose-500' : 'text-orange-500'
-                            }`}>
-                            {attempt.status}
-                        </div>
+                    );
+                })}
+                {filteredAttempts.length === 0 && (
+                    <div className="p-12 text-center text-slate-400 text-sm font-medium">
+                        0 attempts found
                     </div>
-                ))}
+                )}
             </div>
 
         </div>

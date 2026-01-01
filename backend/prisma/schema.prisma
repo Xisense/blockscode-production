@@ -75,6 +75,7 @@ model Exam {
 
   questions Json // Stored as JSON: Assessment sections/questions
   isActive  Boolean @default(true)
+  resultsPublished Boolean @default(false)
 
   submissions ExamSession[]
   feedbacks   Feedback[]
@@ -282,16 +283,23 @@ model Organization {
 }
 
 model Bookmark {
-  id     String @id @default(uuid())
-  userId String
-  unitId String
+  id       String  @id @default(uuid())
+  userId   String
+  unitId   String? // Optional relation
+  customId String  // The actual ID from frontend (Unit ID or Question ID)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  // Metadata for virtual units (questions from tests)
+  title       String?
+  type        String?
+  courseTitle String?
+  moduleTitle String?
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit Unit? @relation(fields: [unitId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
-  @@unique([userId, unitId])
+  @@unique([userId, customId])
   @@index([userId])
-  @@index([unitId])
+  @@index([customId])
 }

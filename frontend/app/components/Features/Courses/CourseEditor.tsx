@@ -5,6 +5,7 @@ import { Course } from '@/app/components/Authoring/types';
 import { useRouter } from 'next/navigation';
 import AlertModal from '@/app/components/Common/AlertModal';
 import { useState } from 'react';
+import { AuthService } from '@/services/api/AuthService';
 
 interface CourseEditorProps {
     initialData?: Course;
@@ -16,6 +17,11 @@ interface CourseEditorProps {
 export default function CourseEditor({ initialData, onDelete, userRole = 'teacher', basePath = '/dashboard/teacher' }: CourseEditorProps) {
     const router = useRouter();
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
+    const [userData, setUserData] = useState<any>(null);
+
+    React.useEffect(() => {
+        setUserData(AuthService.getUser());
+    }, []);
 
     const handleDelete = () => {
         if (onDelete) {
@@ -34,7 +40,13 @@ export default function CourseEditor({ initialData, onDelete, userRole = 'teache
 
     return (
         <>
-            <CourseBuilder initialData={initialData} onDelete={handleDelete} basePath={basePath} userRole={userRole === 'admin' ? 'admin' : 'teacher'} />
+            <CourseBuilder
+                initialData={initialData}
+                onDelete={handleDelete}
+                basePath={basePath}
+                userRole={userRole === 'admin' ? 'admin' : 'teacher'}
+                orgPermissions={userData?.features}
+            />
             <AlertModal
                 isOpen={alertConfig.isOpen}
                 title={alertConfig.title}

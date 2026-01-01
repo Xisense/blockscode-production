@@ -1,10 +1,11 @@
-"use client";
+  "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { BRAND } from "../constants/brand";
 import ImpersonationBanner from "./Common/ImpersonationBanner";
 import { AuthService } from "@/services/api/AuthService";
 import { useOrganization } from "../context/OrganizationContext";
+import { Lock } from "lucide-react";
 
 export interface ExamConfig {
   rollNumber?: string;
@@ -147,6 +148,7 @@ export default function Navbar({ basePath, userRole: roleOverride, examConfig }:
                   <>
                     <NavItem
                       active={isExams}
+                      disabled={userData?.features?.canCreateExams === false}
                       onClick={() => router.push('/dashboard/teacher/exams')}
                       icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 11h4" /><path d="M12 15h4" /><path d="M12 7h4" /><path d="M8 12h.01" /><path d="M8 16h.01" /><path d="M8 8h.01" /><rect x="4" y="4" width="16" height="16" rx="2" /></svg>}
                       label="My Exams"
@@ -164,12 +166,14 @@ export default function Navbar({ basePath, userRole: roleOverride, examConfig }:
                   <>
                     <NavItem
                       active={isUsers}
+                      disabled={userData?.features?.canManageUsers === false}
                       onClick={() => router.push(basePath ? `${basePath}/users` : '/dashboard/admin/users')}
                       icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>}
                       label="Users"
                     />
                     <NavItem
                       active={isExams || pathname?.includes("/courses")}
+                      disabled={userData?.features?.canCreateExams === false && userData?.features?.canCreateCourses === false}
                       onClick={() => router.push(basePath ? `${basePath}/exams` : '/dashboard/admin/exams')}
                       icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 11h4" /><path d="M12 15h4" /><path d="M12 7h4" /><path d="M8 12h.01" /><path d="M8 16h.01" /><path d="M8 8h.01" /><rect x="4" y="4" width="16" height="16" rx="2" /></svg>}
                       label="Examinations"
@@ -299,17 +303,22 @@ export default function Navbar({ basePath, userRole: roleOverride, examConfig }:
   );
 }
 
-function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function NavItem({ active, onClick, icon, label, disabled }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; disabled?: boolean }) {
   return (
     <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${active
-        ? "bg-white text-[var(--brand)] shadow-sm"
-        : "text-slate-400 hover:text-slate-600"
-        }`}
+      onClick={!disabled ? onClick : undefined}
+      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 
+        ${active ? "bg-white text-[var(--brand)] shadow-sm" : "text-slate-400 hover:text-slate-600"}
+        ${disabled ? "opacity-40 cursor-not-allowed grayscale-[0.5]" : "cursor-pointer"}
+      `}
     >
-      {React.isValidElement(icon) && React.cloneElement(icon as React.ReactElement<any>, { className: active ? "stroke-[var(--brand)]" : "stroke-slate-400" })}
+      {React.isValidElement(icon) && React.cloneElement(icon as React.ReactElement<any>, {
+        className: active ? "stroke-[var(--brand)]" : "stroke-slate-400"
+      })}
       <span className={active ? "text-slate-900" : ""}>{label}</span>
+      {disabled && (
+        <Lock size={12} className="ml-1 text-slate-400" />
+      )}
     </button>
   );
 }

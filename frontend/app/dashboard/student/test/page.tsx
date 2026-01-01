@@ -77,7 +77,9 @@ export default function TestAttemptsPage() {
                                         </span>
                                     </td>
                                     <td className="px-6 py-5">
-                                        <span className="text-sm font-bold text-slate-700">{att.score || 'N/A'}</span>
+                                        <span className={`text-sm font-bold ${att.score === 'Hidden' ? 'text-slate-300 italic' : 'text-slate-700'}`}>
+                                            {att.score || 'N/A'}
+                                        </span>
                                     </td>
                                     <td className="px-6 py-5">
                                         <span className="text-sm font-medium text-slate-500">{att.duration} min</span>

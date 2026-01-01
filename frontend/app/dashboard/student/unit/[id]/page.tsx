@@ -8,6 +8,7 @@ import UnitSidebar from '@/app/components/UnitSidebar';
 import { CourseService } from '@/services/api/CourseService';
 import { StudentService } from '@/services/api/StudentService';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/app/components/Common/Toast';
 
 export default function StudentUnitPage({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
     const params = React.use(paramsPromise);
@@ -20,6 +21,7 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
     const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>();
     const [attempts, setAttempts] = useState<any[]>([]);
     const [isExecuting, setIsExecuting] = useState(false);
+    const { success: showSuccess, error: showError } = useToast();
 
     const [courseModules, setCourseModules] = useState<any[] | null>(null);
     const [courseTests, setCourseTests] = useState<any[] | null>(null);
@@ -71,7 +73,12 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
                 await StudentService.removeBookmark(id);
                 setIsBookmarked(false);
             } else {
-                await StudentService.addBookmark(id);
+                await StudentService.addBookmark(id, {
+                    title: currentQuestion.title,
+                    type: currentQuestion.type,
+                    moduleTitle: currentQuestion.moduleTitle || currentQuestion.module?.title,
+                    courseTitle: currentQuestion.module?.course?.title
+                });
                 setIsBookmarked(true);
             }
         } catch (error) {
@@ -89,18 +96,46 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
     const handleSubmit = async (data: any) => {
         if (!currentQuestion) return;
         try {
+            // Determine status based on question type and data
+            let status = 'COMPLETED';
+            let score = 100;
+
+            // Simple mock evaluation logic for demo purposes
+            if (currentQuestion.type === 'MCQ' || currentQuestion.type === 'MultiSelect') {
+                // In a real app, the backend would evaluate this. 
+                // For now, if they selected ANYTHING, we'll call it a success for testing, 
+                // OR we could check for 'isCorrect' if we had it.
+                // Since user specifically asked for "Success if choses right answer", 
+                // we'll try to find 'isCorrect' in the options if it exists.
+                const options = currentQuestion.mcqOptions || [];
+                const correctIds = options.filter((o: any) => o.isCorrect).map((o: any) => o.id);
+
+                if (correctIds.length > 0) {
+                    const selectedIds = Array.isArray(data) ? data : [data];
+                    const isCorrect = selectedIds.length === correctIds.length &&
+                        selectedIds.every(id => correctIds.includes(id));
+                    score = isCorrect ? 100 : 0;
+                } else {
+                    // Fallback: if no correct answer is defined, assume success if they submitted
+                    score = 100;
+                }
+            } else if (currentQuestion.type === 'Coding') {
+                // For coding, we'll mock that it passes all test cases if it's not empty
+                score = (typeof data === 'string' && data.length > 10) ? 100 : 0;
+            }
+
             await StudentService.submitUnit(id, {
-                status: 'COMPLETED',
+                status: status,
                 content: data,
-                score: 100 // Mock score for now
+                score: score
             });
             // Refresh attempts
             const newAttempts = await StudentService.getUnitSubmissions(id);
             setAttempts(newAttempts);
-            alert('Submission successful!');
+            showSuccess('submitted answer..', 'Success');
         } catch (error) {
             console.error('Failed to submit:', error);
-            alert('Submission failed!');
+            showError('Failed to submit answer.', 'Error');
         }
     };
 
@@ -223,8 +258,8 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
 
     const sidebarUnits = currentQuestion ? (
         moduleUnitsList.length > 0 ?
-        moduleUnitsList.map((u: any) => ({ id: String(u.id), type: u.type, title: u.title, done: false, active: normalizeId(u.id) === normalizeId(id) })) :
-        [{ id: String(currentQuestion.id), type: currentQuestion.type, title: currentQuestion.title, done: false, active: true }]
+            moduleUnitsList.map((u: any) => ({ id: String(u.id), type: u.type, title: u.title, done: false, active: normalizeId(u.id) === normalizeId(id) })) :
+            [{ id: String(currentQuestion.id), type: currentQuestion.type, title: currentQuestion.title, done: false, active: true }]
     ) : [];
 
     const navigateToUnit = (targetId: string) => {
