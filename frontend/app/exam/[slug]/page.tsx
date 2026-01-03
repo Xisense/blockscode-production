@@ -13,7 +13,9 @@ import { useElectronMonitoring } from "@/hooks/useElectronMonitoring";
 import { useExamSocket } from "@/hooks/useExamSocket";
 import Loading from "@/app/loading";
 import { useNetworkMonitor } from "@/hooks/useNetworkMonitor";
-// Actually, to avoid dependnecy issues, I'll write a simple debounce ref logic.
+import { useProctoringAI } from "@/hooks/useProctoringAI";
+// PeerJS will be dynamically imported or we can try static if build allows. 
+// Using dynamic import in useEffect is safer for Next.js SSR.
 
 export default function PublicExamPage() {
     const params = useParams();
@@ -37,20 +39,25 @@ export default function PublicExamPage() {
     const [isSuccessMode, setIsSuccessMode] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    const [tabSwitchLimit, setTabSwitchLimit] = useState<number | null>(null);
+    const [canShowFullscreenWarning, setCanShowFullscreenWarning] = useState(false);
 
     const [user, setUser] = useState<any>(null);
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [examTitle, setExamTitle] = useState("Examination");
     const [finalSubmitTime, setFinalSubmitTime] = useState<string | null>(null);
 
-    const { warning, info, error: toastError } = useToast();
+    const { warning, info, error: toastError, dismiss } = useToast();
+    const fullscreenToastIdRef = useRef<string | null>(null);
+    const hasInteractedRef = useRef(false);
     const debouncedSaveRef = useRef<any>(null);
 
     // Exam ID for socket and monitoring
     const examId = slug as string;
 
     // Socket Integration
-    const { saveAnswer, logViolation: socketLogViolation, saveReviewStatus, disconnect } = useExamSocket(
+    // Socket Integration
+    const { socket, saveAnswer, logViolation: socketLogViolation, saveReviewStatus, disconnect } = useExamSocket(
         examId,
         user?.id || user?.rollNumber || '',
         sessionId || ''
@@ -75,8 +82,123 @@ export default function PublicExamPage() {
         }
     }, [isOnline]);
 
+    // Delay Fullscreen Warning by 3 seconds
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setCanShowFullscreenWarning(true);
+        }, 3000);
+        return () => clearTimeout(timer);
+    }, []);
+
     // Initialize Monitoring Hook
     const { logEvent } = useElectronMonitoring(slug || '', user?.rollNumber || "2211981482");
+
+    // --- AI PROCTORING & PEERJS ---
+    const { videoRef, canvasRef, isModelLoaded } = useProctoringAI({
+        active: !isLoading && !isSuccessMode && !isFeedbackMode, // Only active when taking exam
+        onViolation: (type, msg, img) => {
+            console.log(`[Proctoring] Violation: ${type} - ${msg}. SessionID state:`, sessionId);
+            socketLogViolation(type, msg, img); // Pass image as details
+        }
+    });
+
+    const peerInstance = useRef<any>(null); // Use any to avoid static import issues or specific type if loaded
+
+    useEffect(() => {
+        // Initialize PeerJS only on client
+        if (typeof window === 'undefined') return;
+
+        let peer: any;
+        const initPeer = async () => {
+            try {
+                const { Peer } = await import('peerjs');
+                // Use a random ID or predictable if preferred?
+                // Random is fine, we will exchange it via socket signal if we want "call me".
+                // BUT the plan says: Teacher sends CMD_REQUEST_STREAM -> Student calls Teacher.
+                // So Student just needs a Peer ID.
+                peer = new Peer();
+
+                peer.on('open', (id: string) => {
+                    console.log('[PeerJS] My ID:', id);
+                });
+
+                peerInstance.current = peer;
+            } catch (e) {
+                console.error("PeerJS init failed", e);
+            }
+        };
+
+        initPeer();
+
+        return () => {
+            if (peer) peer.destroy();
+        };
+    }, []);
+
+    // Listen for Streaming Requests
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleRequestStream = async (data: { teacherSocketId: string }) => {
+            console.log("[Proctoring] Received Stream Request from", data.teacherSocketId);
+            info("Proctor is requesting video verification...");
+
+            if (!peerInstance.current || !videoRef.current) {
+                console.warn("[Proctoring] Peer or Video not ready");
+                return;
+            }
+
+            try {
+                // Get stream from video element? Ref srcObject might be set by hook
+                const stream = videoRef.current.srcObject as MediaStream;
+                if (!stream) {
+                    warning("Camera not active for streaming.");
+                    return;
+                }
+
+                // Since we are P2P, we need Teacher's PeerID.
+                // The socket "cmd_request_stream" needs to carry the Teacher's PeerID, OR we use a convention.
+                // Current backend sends `teacherSocketId`.
+                // If we assume teacher uses `peerId = socketId` (not possible usually as peerjs generates ID or we force it).
+                // CORRECTION: Teacher should send THEIR PeerID in the request.
+                // I need to update backend to include teacherPeerId if possible, OR Teacher component sends it in the request payload.
+                // For now, let's assume the data contains `teacherPeerId` (I will ensure Teacher sends it).
+
+                // If data only has `teacherSocketId`, we are stuck unless we relay signals.
+                // PLAN CHANGE: Teacher accepts incoming calls? No, Plan said "Student Client initializes peer.call('teacher-admin', stream)".
+                // Wait, plan said "Student Client initializes peer.call('teacher-admin', stream)".
+                // 'teacher-admin' is a static string? Or unique per teacher?
+                // If unique per teacher, the request needs to allow us to know WHO to call.
+                // I will update the backend listener/Teacher sender to include peerId in the payload.
+                // For now, assuming data has `teacherPeerId`.
+                // If strict "teacher-admin" string in plan means a specific ID usage:
+                // User's phase 2: "Response: Student Client initializes peer.call('teacher-admin', stream)."
+                // NOTE: 'teacher-admin' is generic. If multiple teachers?
+                // I'll assume `data.teacherPeerId` will be provided.
+
+                // TEMPORARY FIX: I will log it. I will implement Teacher side to send `teacherPeerId`.
+                const teacherPeerId = (data as any).teacherPeerId;
+                if (teacherPeerId) {
+                    const call = peerInstance.current.call(teacherPeerId, stream);
+                    console.log("[Proctoring] Calling teacher:", teacherPeerId);
+
+                    call.on('close', () => {
+                        console.log("Stream ended");
+                    });
+                } else {
+                    console.error("No teacherPeerId provided in request");
+                }
+            } catch (err) {
+                console.error("Streaming error", err);
+            }
+        };
+
+        socket.on('cmd_request_stream', handleRequestStream);
+
+        return () => {
+            socket.off('cmd_request_stream', handleRequestStream);
+        };
+    }, [socket, info, warning]);
 
     useEffect(() => {
         if (!slug) return;
@@ -131,6 +253,7 @@ export default function PublicExamPage() {
                 // 1. Get Exam Content (Metadata only first)
                 const data = await ExamService.getExamBySlug(slug as string);
                 setExamTitle(data.title || "Examination");
+                setTabSwitchLimit(data.tabSwitchLimit || null);
 
                 // 2. Start/Resume Session (Gatekeeper)
                 const session = await ExamService.startExam(
@@ -308,8 +431,10 @@ export default function PublicExamPage() {
                         }
                     }
                 }
+                setIsLoading(false);
+                console.log("[ExamPage] Exam data loaded successfully, isLoading set to false");
             } catch (error: any) {
-                console.error("Failed to load exam data", error);
+                console.error("[ExamPage] Failed to load exam data", error);
                 if (error.message?.includes('EXAM_ALREADY_ACTIVE')) {
                     window.location.href = `/exam/login?slug=${slug}&error=active_session`;
                     return; // Keep loading visible
@@ -508,22 +633,104 @@ export default function PublicExamPage() {
     useEffect(() => {
         if (isFeedbackMode || isSuccessMode) return;
 
-        const onFocus = () => {
-            setWindowFocus(prev => ({ ...prev, in: prev.in + 1 }));
-            socketLogViolation('TAB_SWITCH_IN', 'Student switched back to exam tab');
-        };
-        const onBlur = () => {
-            setWindowFocus(prev => ({ ...prev, out: prev.out + 1 }));
-            socketLogViolation('TAB_SWITCH_OUT', 'Student switched away from exam tab');
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                socketLogViolation('TAB_SWITCH_IN', 'Student switched back to exam tab');
+                setWindowFocus(prev => {
+                    const newIn = prev.in + 1;
+                    if (tabSwitchLimit && newIn >= tabSwitchLimit) {
+                        console.log("[Focus] Local limit reached. Auto-kick incoming...");
+                    }
+                    return { ...prev, in: newIn };
+                });
+            } else {
+                socketLogViolation('TAB_SWITCH_OUT', 'Student switched away from exam tab');
+                setWindowFocus(prev => ({ ...prev, out: prev.out + 1 }));
+            }
         };
 
-        window.addEventListener("focus", onFocus);
-        window.addEventListener("blur", onBlur);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
         return () => {
-            window.removeEventListener("focus", onFocus);
-            window.removeEventListener("blur", onBlur);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
         };
-    }, [logEvent, socketLogViolation, isFeedbackMode, isSuccessMode]);
+    }, [socketLogViolation, isFeedbackMode, isSuccessMode, tabSwitchLimit]);
+
+    // Fullscreen Monitoring
+    useEffect(() => {
+        console.log("[ExamPage] Fullscreen Monitoring Effect. Modes:", { isFeedbackMode, isSuccessMode, isLoading });
+
+        if (isFeedbackMode || isSuccessMode) {
+            if (fullscreenToastIdRef.current) {
+                console.log("[ExamPage] Clearing fullscreen toast due to end-of-exam mode");
+                dismiss(fullscreenToastIdRef.current);
+                fullscreenToastIdRef.current = null;
+            }
+            return;
+        }
+
+        const checkFullscreen = () => {
+            const doc = document as any;
+            const isFS = !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
+            console.log("[ExamPage] checkFullscreen called. isFS:", isFS, "ToastId:", fullscreenToastIdRef.current);
+
+            if (!isFS) {
+                if (!fullscreenToastIdRef.current && canShowFullscreenWarning) {
+                    console.log("[ExamPage] Showing fullscreen warning toast...");
+                    const id = warning(
+                        "Please enter full screen mode to continue the exam.",
+                        "Full Screen Required",
+                        0, // Persistent
+                        true, // Undismissible
+                        'top-center' // Position
+                    );
+                    fullscreenToastIdRef.current = id;
+                }
+            } else {
+                if (fullscreenToastIdRef.current) {
+                    console.log("[ExamPage] Dismissing fullscreen toast:", fullscreenToastIdRef.current);
+                    dismiss(fullscreenToastIdRef.current);
+                    fullscreenToastIdRef.current = null;
+                }
+            }
+        };
+
+        // Initial check
+        checkFullscreen();
+
+        const handleFsChange = () => {
+            console.log("[ExamPage] fullscreenchange event triggered");
+            checkFullscreen();
+        };
+
+        document.addEventListener("fullscreenchange", handleFsChange);
+        document.addEventListener("webkitfullscreenchange", handleFsChange);
+        document.addEventListener("mozfullscreenchange", handleFsChange);
+        document.addEventListener("MSFullscreenChange", handleFsChange);
+
+        return () => {
+            document.removeEventListener("fullscreenchange", handleFsChange);
+            document.removeEventListener("webkitfullscreenchange", handleFsChange);
+            document.removeEventListener("mozfullscreenchange", handleFsChange);
+            document.removeEventListener("MSFullscreenChange", handleFsChange);
+            if (fullscreenToastIdRef.current) {
+                dismiss(fullscreenToastIdRef.current);
+                fullscreenToastIdRef.current = null;
+            }
+        };
+    }, [isFeedbackMode, isSuccessMode, warning, dismiss, canShowFullscreenWarning]);
+
+    // Auto-collapse sidebar if not hovered for 3s (initial load only)
+    useEffect(() => {
+        if (isLoading || isFeedbackMode || isSuccessMode || sidebarCollapsed || isSidebarHovered || hasInteractedRef.current) return;
+
+        const timer = setTimeout(() => {
+            if (!hasInteractedRef.current) {
+                setSidebarCollapsed(true);
+            }
+        }, 3000);
+
+        return () => clearTimeout(timer);
+    }, [isLoading, isSidebarHovered, sidebarCollapsed, isFeedbackMode, isSuccessMode]);
 
     const handleQuestionSelect = (sectionId: string, questionId: string | number, force = false) => {
         // Prevent selecting questions from locked or submitted sections (unless forced)
@@ -840,7 +1047,10 @@ export default function PublicExamPage() {
                                 onQuestionSelect={handleQuestionSelect}
                                 collapsed={sidebarCollapsed}
                                 hidden={sidebarHidden}
-                                onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+                                onToggleCollapse={() => {
+                                    hasInteractedRef.current = true;
+                                    setSidebarCollapsed(!sidebarCollapsed);
+                                }}
                                 onToggleHidden={() => setSidebarHidden(!sidebarHidden)}
                                 onToggleNavbar={() => setNavbarVisible(!navbarVisible)}
                                 navbarVisible={navbarVisible}
@@ -872,6 +1082,17 @@ export default function PublicExamPage() {
                     </>
                 )}
             </div>
+
+
+            {/* AI Proctoring Webcam (Clean Preview) */}
+            {!isFeedbackMode && !isSuccessMode && (
+                <div className="fixed bottom-24 right-6 z-[90] pointer-events-none">
+                    <div className="w-40 h-28 bg-black rounded-2xl overflow-hidden relative">
+                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
+                        {!isModelLoaded && <div className="absolute inset-0 flex items-center justify-center text-[9px] text-white font-mono bg-black/80">Loading...</div>}
+                    </div>
+                </div>
+            )}
 
             {/* Connection Alert Overlay */}
             {showOfflineAlert && (

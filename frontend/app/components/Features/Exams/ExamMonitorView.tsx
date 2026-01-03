@@ -4,6 +4,9 @@ import Navbar from "@/app/components/Navbar";
 import { TeacherService, Student } from "@/services/api/TeacherService";
 import Loading from "@/app/loading";
 import { useToast } from "@/app/components/Common/Toast";
+import { io, Socket } from 'socket.io-client';
+
+// PeerJS dynamic import usage in useEffect
 
 interface Feedback {
     id: string;
@@ -21,8 +24,13 @@ interface ExamMonitorViewProps {
 }
 
 export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMonitorViewProps) {
-    const [view, setView] = useState<'monitor' | 'feedback'>('monitor');
-    const { success, error } = useToast();
+    const [view, setView] = useState<'monitor' | 'feedback' | 'ai-proctoring'>('monitor');
+    const { success, error, warning, info } = useToast();
+    const socketRef = React.useRef<Socket | null>(null);
+    const peerRef = React.useRef<any>(null); // Peer instance
+    const [violations, setViolations] = useState<any[]>([]);
+    const [activeStream, setActiveStream] = useState<{ studentId: string; stream: MediaStream } | null>(null);
+    const videoRef = React.useRef<HTMLVideoElement>(null);
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
     const [students, setStudents] = useState<Student[]>([]);
@@ -30,6 +38,7 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
 
     useEffect(() => {
         const loadData = async () => {
+            // ... existing data loading ...
             try {
                 const studentData = await TeacherService.getMonitoredStudents(examId);
                 setStudents(studentData);
@@ -42,11 +51,129 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
             }
         };
         loadData();
-
-        // Poll for updates
         const interval = setInterval(loadData, 5000); // 5s poll
         return () => clearInterval(interval);
     }, [examId]);
+
+    // --- AI PROCTORING LOGIC ---
+    useEffect(() => {
+        if (view !== 'ai-proctoring') return;
+
+        // 1. Socket Init
+        const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
+        const socket = io(`${SOCKET_URL}/proctoring`, {
+            transports: ['websocket'],
+            reconnection: true,
+        });
+        socketRef.current = socket;
+
+        socket.on('connect', () => {
+            console.log('[Monitor] Connected to socket');
+            socket.emit('join_exam', {
+                examId,
+                userId: 'teacher-' + Math.random().toString(36).substr(2, 9),
+                role: 'teacher'
+            });
+        });
+
+        // 2. PeerJS Init
+        const initPeer = async () => {
+            if (peerRef.current) return;
+            try {
+                const { Peer } = await import('peerjs');
+                const peer = new Peer();
+
+                peer.on('open', (id: string) => {
+                    console.log('[Monitor] My Peer ID:', id);
+                    peerRef.current = peer;
+                });
+
+                peer.on('call', (call: any) => {
+                    console.log('[Monitor] Incoming Call');
+                    call.answer(); // Answer automatically
+                    call.on('stream', (remoteStream: MediaStream) => {
+                        console.log('[Monitor] Stream received');
+                        // Find who is calling? 
+                        // Simplified: Just show the stream
+                        setActiveStream({ studentId: 'Unknown', stream: remoteStream });
+                    });
+                });
+            } catch (e) {
+                console.error("Peer init failed", e);
+            }
+        };
+        initPeer();
+
+        // 3. Listeners
+        socket.on('live_violation', async (data: any) => {
+            console.log("Live Violation Received (RAW):", data);
+            if (data.details) console.log("Details Type:", typeof data.details, "Length:", data.details.length);
+
+            // Check for Redis Reference
+            if (data.details && data.details.startsWith('violation_img:')) {
+                // Fetch Image Async
+                socket.emit('get_violation_image', { imageKey: data.details }, (response: any) => {
+                    if (response && response.imageData) {
+                        // Update the violation object with the real image
+                        setViolations(prev => {
+                            const updated = [...prev];
+                            // Find if we already added it (race condition safety)
+                            const existingIndex = updated.findIndex(v => v.timestamp === data.timestamp && v.userId === data.userId);
+
+                            if (existingIndex >= 0) {
+                                updated[existingIndex] = { ...updated[existingIndex], details: response.imageData };
+                                return updated;
+                            } else {
+                                // Add new with image
+                                return [{ ...data, details: response.imageData }, ...prev];
+                            }
+                        });
+                    }
+                });
+
+                // Add placeholder initially?
+                // For simplicity, let's just add it, and if the fetch works, we update. 
+                // BUT updating state async is tricky.
+
+                // Let's Add it to state with the Key, and have a separate Effect or component resolve it?
+                // Or just do it here:
+
+                // Add initially with key (it will fail string check in render, showing text, which is fine)
+                setViolations(prev => [data, ...prev]);
+
+            } else {
+                setViolations(prev => [data, ...prev]);
+            }
+
+            warning(`Violation: ${data.userId} - ${data.type}`);
+        });
+
+        return () => {
+            socket.disconnect();
+            if (peerRef.current) peerRef.current.destroy();
+            peerRef.current = null;
+        };
+    }, [view, examId, warning]);
+
+    // Stream Video Effect
+    useEffect(() => {
+        if (activeStream && videoRef.current) {
+            videoRef.current.srcObject = activeStream.stream;
+        }
+    }, [activeStream]);
+
+    const requestStream = (studentId: string) => {
+        if (!socketRef.current || !peerRef.current) {
+            error("Connection not ready");
+            return;
+        }
+        info(`Requesting stream from ${studentId}...`);
+        socketRef.current.emit('request_stream', {
+            targetUserId: studentId,
+            examId,
+            teacherPeerId: peerRef.current.id // Pass my Peer ID
+        });
+    };
 
     const stats = [
         { label: "Total Students", value: students.length, color: "text-slate-800" },
@@ -93,6 +220,15 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
                     </div>
 
                     <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => setView('ai-proctoring')}
+                            className={`relative flex items-center gap-3 px-6 py-3 rounded-2xl border transition-all ${view === 'ai-proctoring' ? `${activeBgClass} text-white border-transparent shadow-xl ${activeShadowClass}` : `bg-white border-slate-100 text-slate-600 hover:border-[var(--brand-light)] shadow-sm`}`}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 10l5 5-5 5" /><path d="M4 4v7a4 4 0 0 0 4 4h12" /></svg>
+                            <span className="text-[11px] font-black uppercase tracking-widest">AI Proctoring</span>
+                            <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 animate-pulse border-2 border-white"></div>
+                        </button>
+
                         {/* Feedback Toggle Button */}
                         <button
                             onClick={() => setView('feedback')}
@@ -261,6 +397,82 @@ export default function ExamMonitorView({ examId, userRole = 'teacher' }: ExamMo
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                )}
+
+                {view === 'ai-proctoring' && (
+                    <div className="animate-in slide-in-from-right duration-500 grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-200px)]">
+                        {/* Left: Violation Feed */}
+                        <div className="lg:col-span-1 bg-white rounded-[32px] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
+                            <div className="p-6 border-b border-slate-50 bg-slate-50/30 flex justify-between items-center">
+                                <h3 className="font-black text-slate-800 text-sm uppercase tracking-widest">Live Violations</h3>
+                                <span className="bg-rose-100 text-rose-600 px-2 py-1 rounded-lg text-[10px] font-black">{violations.length}</span>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                                {violations.length === 0 && (
+                                    <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-2">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
+                                        <span className="text-xs font-bold uppercase tracking-widest">No Violations Yet</span>
+                                    </div>
+                                )}
+                                {violations.map((v, i) => (
+                                    <div key={i} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer group" onClick={() => requestStream(v.userId)}>
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-500">
+                                                {v.userId[0]}
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-black text-slate-800">{v.userId}</p>
+                                                <p className="text-[10px] font-bold text-slate-400">{new Date(v.timestamp).toLocaleTimeString()}</p>
+                                            </div>
+                                            <span className="ml-auto text-[9px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-1 rounded-lg">{v.type}</span>
+                                        </div>
+                                        <p className="text-xs font-medium text-slate-600 mb-3">{v.message}</p>
+                                        {v.details && typeof v.details === 'string' && v.details.startsWith('data:image') && (
+                                            <div className="rounded-xl overflow-hidden border border-slate-100 relative group-hover:ring-2 ring-[var(--brand)] transition-all">
+                                                <img src={v.details} alt="Evidence" className="w-full h-auto object-cover opacity-80 group-hover:opacity-100" />
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                                    <span className="text-[9px] font-black text-white bg-black/50 px-2 py-1 rounded-md backdrop-blur-sm">CLICK TO VIEW LIVE</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Right: Live Stage */}
+                        <div className="lg:col-span-2 bg-black rounded-[32px] overflow-hidden shadow-2xl relative flex flex-col">
+                            <div className="flex-1 relative bg-slate-900 flex items-center justify-center">
+                                {activeStream ? (
+                                    <video ref={videoRef} autoPlay className="w-full h-full object-contain" />
+                                ) : (
+                                    <div className="text-slate-600 flex flex-col items-center gap-4">
+                                        <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center animate-pulse">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
+                                        </div>
+                                        <p className="text-sm font-black uppercase tracking-widest text-slate-500">Select a student/violation to view live feed</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Controls / Info Bar */}
+                            <div className="h-16 bg-slate-800/80 backdrop-blur-md border-t border-slate-700 flex items-center justify-between px-6">
+                                {activeStream ? (
+                                    <>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shadow-lg shadow-rose-500/50"></div>
+                                            <span className="text-xs font-black text-white uppercase tracking-widest">Live Connection</span>
+                                        </div>
+                                        <button onClick={() => { setActiveStream(null); if (videoRef.current) videoRef.current.srcObject = null; }} className="text-[10px] font-black bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-xl uppercase tracking-widest transition-colors">
+                                            End Session
+                                        </button>
+                                    </>
+                                ) : (
+                                    <span className="text-xs font-bold text-slate-500">Waiting for connection...</span>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

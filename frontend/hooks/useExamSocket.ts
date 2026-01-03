@@ -6,6 +6,7 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http
 
 export const useExamSocket = (examId: string, userId: string, sessionId: string) => {
     const socketRef = useRef<Socket | null>(null);
+    const [activeSocket, setActiveSocket] = useState<Socket | null>(null);
     const { error: toastError, warning } = useToast();
     const isKicked = useRef(false);
 
@@ -39,6 +40,7 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
         });
 
         socketRef.current = socket;
+        setActiveSocket(socket);
 
         socket.on('connect', () => {
             console.log(`[Socket] Connected to Proctoring Gateway (${socket.id})`);
@@ -126,7 +128,7 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
         }
     }, [sessionId]);
 
-    const logViolation = useCallback((type: string, message: string) => {
+    const logViolation = useCallback((type: string, message: string, details?: any) => {
         if (!isKicked.current && socketRef.current?.connected && sessionId) {
             socketRef.current.emit('log_violation', {
                 sessionId,
@@ -134,6 +136,7 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
                 userId,
                 type,
                 message,
+                details,
                 timestamp: new Date()
             });
         }
@@ -155,10 +158,11 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
     }, []);
 
     return {
+        socket: activeSocket,
         saveAnswer,
         logViolation,
         saveReviewStatus,
         disconnect,
-        isConnected: socketRef.current?.connected && !isKicked.current
+        isConnected: activeSocket?.connected && !isKicked.current
     };
 };

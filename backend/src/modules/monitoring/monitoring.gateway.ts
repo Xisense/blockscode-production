@@ -126,6 +126,7 @@ export class MonitoringGateway
         const examSession = await this.prisma.examSession.findUnique({
             where: { id: data.sessionId },
             include: {
+                exam: true,
                 violations: {
                     where: { type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT', 'TAB_SWITCH_IN'] } }
                 }
@@ -133,7 +134,12 @@ export class MonitoringGateway
         });
 
         // 1. BLOCK violations if session is already completed or terminated
-        if (!examSession || examSession.status === 'COMPLETED' || examSession.status === 'TERMINATED') {
+        if (!examSession) {
+            console.log(`[Proctoring] Rejected violation: Session ${data.sessionId} not found`);
+            return { status: 'rejected', reason: 'Session not found' };
+        }
+        if (examSession.status === 'COMPLETED' || examSession.status === 'TERMINATED') {
+            console.log(`[Proctoring] Rejected violation: Session ${data.sessionId} is ${examSession.status}`);
             return { status: 'rejected', reason: 'Session inactive' };
         }
 
@@ -155,19 +161,88 @@ export class MonitoringGateway
         if (data.type === 'TAB_SWITCH' || data.type === 'TAB_SWITCH_OUT') tabSwitchOutCount++;
         if (data.type === 'TAB_SWITCH_IN') tabSwitchInCount++;
 
+        // 2. CHECK TAB SWITCH LIMIT (Auto-termination)
+        const limit = (examSession.exam as any)?.tabSwitchLimit;
+        if (data.type === 'TAB_SWITCH_IN' && limit && tabSwitchInCount >= limit) {
+            console.log(`[Proctoring] Auto-terminating session ${data.sessionId} for user ${data.userId} due to tab switch limit (${tabSwitchInCount}/${limit})`);
+
+            await this.prisma.examSession.update({
+                where: { id: data.sessionId },
+                data: { status: 'TERMINATED', endTime: new Date() }
+            });
+
+            // Force kick student
+            await this.forceTerminate(data.examId, data.userId);
+
+            // Notify teachers about the termination
+            this.server
+                .to(`exam_${data.examId}_monitor`)
+                .emit('student_terminated', {
+                    userId: data.userId,
+                    reason: `Exceeded Tab Switch Limit (${limit})`
+                });
+
+            return { status: 'terminated' };
+        }
+
+        // Optimizing Image Data Transmission
+        let imageReference = null;
+        if (data.details && typeof data.details === 'string' && data.details.length > 100) {
+            // It's likely a base64 image. Store in Redis to avoid socket bloat.
+            const imageKey = `violation_img:${data.examId}:${data.userId}:${Date.now()}`;
+            await this.redis.set(imageKey, data.details, 'EX', 3600); // Expire in 1 hour
+            imageReference = imageKey;
+
+            // Clean payload
+            data.details = imageReference;
+            console.log(`[Proctoring] Image stored in Redis: ${imageKey}`);
+        } else {
+            console.log(`[Proctoring] No image specific processing. Details len: ${data.details ? data.details.length : 0}`);
+        }
+
         this.server
             .to(`exam_${data.examId}_monitor`)
             .emit('live_violation', {
                 userId: data.userId,
                 type: data.type,
                 message: data.message,
-                details: data.details,
-                tabSwitchOutCount,
-                tabSwitchInCount,
+                details: imageReference || data.details, // Send Key or small text
+                tabOuts: tabSwitchOutCount,
+                tabIns: tabSwitchInCount,
                 timestamp: new Date()
             });
 
+        console.log(`[Proctoring] Emitting live_violation to exam_${data.examId}_monitor:`, data.type, imageReference ? '(Redis Image)' : '(No Image)');
+
+
         return { status: 'recorded' };
+    }
+
+    @SubscribeMessage('request_stream')
+    async handleRequestStream(
+        @MessageBody() data: { targetUserId: string; examId: string; teacherPeerId: string },
+        @ConnectedSocket() client: Socket,
+    ) {
+        // Teacher requests stream from student
+        // Broadcast to the specific student room
+        const studentRoom = `student_${data.targetUserId}_exam_${data.examId}`;
+        console.log(`[Proctoring] Streaming requested for user ${data.targetUserId} in exam ${data.examId} (Peer: ${data.teacherPeerId})`);
+
+        this.server.to(studentRoom).emit('cmd_request_stream', {
+            teacherSocketId: client.id,
+            teacherPeerId: data.teacherPeerId
+        });
+        return { status: 'requested' };
+    }
+
+    @SubscribeMessage('get_violation_image')
+    async handleGetViolationImage(
+        @MessageBody() data: { imageKey: string },
+        @ConnectedSocket() client: Socket,
+    ) {
+        if (!data.imageKey) return { status: 'n/a' };
+        const imageData = await this.redis.get(data.imageKey);
+        return { status: 'ok', imageData };
     }
 
     @SubscribeMessage('heartbeat')

@@ -9,14 +9,17 @@ interface Toast {
     message: string;
     type: ToastType;
     title?: string;
+    undismissible?: boolean;
+    position?: 'top-right' | 'top-center';
 }
 
 interface ToastContextType {
-    toast: (message: string, type?: ToastType, title?: string) => void;
-    success: (message: string, title?: string) => void;
-    error: (message: string, title?: string) => void;
-    info: (message: string, title?: string) => void;
-    warning: (message: string, title?: string) => void;
+    toast: (message: string, type?: ToastType, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => string;
+    success: (message: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => string;
+    error: (message: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => string;
+    info: (message: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => string;
+    warning: (message: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => string;
+    dismiss: (id: string) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -28,25 +31,54 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
-    const showToast = useCallback((message: string, type: ToastType = 'info', title?: string) => {
+    const showToast = useCallback((message: string, type: ToastType = 'info', title?: string, duration: number = 5000, undismissible: boolean = false, position: 'top-right' | 'top-center' = 'top-right') => {
         const id = Math.random().toString(36).substring(2, 9);
-        setToasts(prev => [...prev, { id, message, type, title }]);
+        console.log("[Toast] showToast called:", { id, message, type, title, duration, undismissible, position });
+        setToasts(prev => [...prev, { id, message, type, title, undismissible, position }]);
 
-        // Auto remove after 5 seconds
-        setTimeout(() => removeToast(id), 5000);
+        // Auto remove after duration if duration > 0
+        if (duration > 0) {
+            setTimeout(() => {
+                console.log("[Toast] Auto-removing toast:", id);
+                removeToast(id);
+            }, duration);
+        }
+        return id;
     }, [removeToast]);
 
-    const success = (msg: string, title?: string) => showToast(msg, 'success', title);
-    const error = (msg: string, title?: string) => showToast(msg, 'error', title);
-    const info = (msg: string, title?: string) => showToast(msg, 'info', title);
-    const warning = (msg: string, title?: string) => showToast(msg, 'warning', title);
+    const success = useCallback((msg: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => showToast(msg, 'success', title, duration, undismissible, position), [showToast]);
+    const error = useCallback((msg: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => showToast(msg, 'error', title, duration, undismissible, position), [showToast]);
+    const info = useCallback((msg: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => showToast(msg, 'info', title, duration, undismissible, position), [showToast]);
+    const warning = useCallback((msg: string, title?: string, duration?: number, undismissible?: boolean, position?: 'top-right' | 'top-center') => showToast(msg, 'warning', title, duration, undismissible, position), [showToast]);
+
+    const dismiss = useCallback((id: string) => {
+        console.log("[Toast] dismiss called:", id);
+        removeToast(id);
+    }, [removeToast]);
+
+    const value = React.useMemo(() => ({
+        toast: showToast,
+        success,
+        error,
+        info,
+        warning,
+        dismiss
+    }), [showToast, success, error, info, warning, dismiss]);
 
     return (
-        <ToastContext.Provider value={{ toast: showToast, success, error, info, warning }}>
+        <ToastContext.Provider value={value}>
             {children}
-            {/* Toast Container */}
+            {/* Toast Containers */}
+            {/* Top Right */}
             <div className="fixed top-6 right-6 z-[9999] flex flex-col gap-3 w-80 pointer-events-none">
-                {toasts.map((t) => (
+                {toasts.filter(t => !t.position || t.position === 'top-right').map((t) => (
+                    <ToastItem key={t.id} toast={t} onClose={() => removeToast(t.id)} />
+                ))}
+            </div>
+
+            {/* Top Center */}
+            <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-3 w-96 pointer-events-none">
+                {toasts.filter(t => t.position === 'top-center').map((t) => (
                     <ToastItem key={t.id} toast={t} onClose={() => removeToast(t.id)} />
                 ))}
             </div>
@@ -70,15 +102,17 @@ function ToastItem({ toast, onClose }: { toast: Toast, onClose: () => void }) {
     };
 
     return (
-        <div className={`pointer-events-auto flex items-start gap-4 p-4 rounded-2xl border bg-white/80 backdrop-blur-md shadow-xl animate-in slide-in-from-right-full duration-300 ${styles[toast.type]}`}>
+        <div className={`pointer-events-auto flex items-start gap-4 p-4 rounded-2xl border bg-white/80 backdrop-blur-md shadow-xl animate-fade-in ${styles[toast.type]}`}>
             <div className="shrink-0 mt-0.5">{icons[toast.type]}</div>
             <div className="flex-1 min-w-0">
                 {toast.title && <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-800 mb-1">{toast.title}</h4>}
                 <p className="text-xs font-bold text-slate-600 leading-relaxed">{toast.message}</p>
             </div>
-            <button onClick={onClose} className="shrink-0 p-1 text-slate-400 hover:text-slate-600 transition-colors">
-                <X size={14} />
-            </button>
+            {!toast.undismissible && (
+                <button onClick={onClose} className="shrink-0 p-1 text-slate-400 hover:text-slate-600 transition-colors">
+                    <X size={14} />
+                </button>
+            )}
         </div>
     );
 }

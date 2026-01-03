@@ -15,12 +15,15 @@ export class MonitoringController {
     @Post('log-violation')
     logViolation(@Body() body: any) {
         // Save to DB associated with session
-        console.log('Violation:', body);
+        console.log('Violation Logged via HTTP (Fallback):', body);
 
-        // Notify teacher immediately via WebSocket
+        // NOTE: Real-time proctoring primarily uses handleLogViolation in monitoring.gateway.ts
+        // We comment this out to prevent double-counting in the monitoring dashboard
+        /*
         this.gateway.server
             .to(`exam_${body.examId}_monitor`)
             .emit('live_violation', body);
+        */
 
         return { status: 'recorded' };
     }

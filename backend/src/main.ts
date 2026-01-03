@@ -40,6 +40,12 @@ async function bootstrap() {
             process.exit(1);
         }
         console.log(`Application is listening on ${address}`);
+
+        // Initialize PeerServer
+        // Using require to avoid potential type issues if @types/peer is missing
+        const { PeerServer } = require('peer');
+        const peerServer = PeerServer({ port: 9001, path: '/peer' });
+        console.log('PeerServer running on port 9001, path /peer');
     });
 }
 bootstrap();
