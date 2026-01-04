@@ -33,13 +33,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
     const showToast = useCallback((message: string, type: ToastType = 'info', title?: string, duration: number = 5000, undismissible: boolean = false, position: 'top-right' | 'top-center' = 'top-right') => {
         const id = Math.random().toString(36).substring(2, 9);
-        console.log("[Toast] showToast called:", { id, message, type, title, duration, undismissible, position });
+        // console.log("[Toast] showToast called:", { id, message, type, title, duration, undismissible, position });
         setToasts(prev => [...prev, { id, message, type, title, undismissible, position }]);
 
         // Auto remove after duration if duration > 0
         if (duration > 0) {
             setTimeout(() => {
-                console.log("[Toast] Auto-removing toast:", id);
+                // console.log("[Toast] Auto-removing toast:", id);
                 removeToast(id);
             }, duration);
         }
