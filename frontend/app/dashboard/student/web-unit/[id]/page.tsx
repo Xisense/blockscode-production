@@ -9,10 +9,10 @@ import WebEditor from "@/app/components/WebEditor/WebEditor";
 import UnitRenderer from "@/app/components/UnitRenderer";
 
 const sidebarUnits = [
-    { id: 1, type: "MQ", title: "JS: Objects", done: true, active: false },
-    { id: 2, type: "Coding", title: "JS: Object Methods", done: false, active: true },
-    { id: 3, type: "Coding", title: "CSS Display: Float and Clear", done: false, active: false },
-    { id: 4, type: "Coding", title: "HTML: Forms & Inputs", done: false, active: false },
+    { id: "1", type: "MQ", title: "JS: Objects", done: true, active: false },
+    { id: "2", type: "Coding", title: "JS: Object Methods", done: false, active: true },
+    { id: "3", type: "Coding", title: "CSS Display: Float and Clear", done: false, active: false },
+    { id: "4", type: "Coding", title: "HTML: Forms & Inputs", done: false, active: false },
 ];
 
 export default function WebUnitPage() {

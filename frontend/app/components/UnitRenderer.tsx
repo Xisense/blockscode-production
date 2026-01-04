@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import DOMPurify from 'dompurify';
+import DOMPurify from 'isomorphic-dompurify';
 import SplitPane from './SplitPane';
 import ProblemStatement from './ProblemStatement';
 import MCQOptions from './MCQOptions';
@@ -342,7 +342,7 @@ export default function UnitRenderer({
                         currentAnswer={currentAnswer}
                         onAnswerChange={onAnswerChange}
                         onSubmit={onSubmit}
-                        contentFontSize={contentFontSize}
+                        contentFontSize={contentFontSize || 16}
                         selectedCodingLang={selectedCodingLang}
                         onLanguageChange={handleLanguageChange}
                         isRunning={isRunning}

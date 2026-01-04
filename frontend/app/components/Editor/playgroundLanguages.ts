@@ -219,7 +219,7 @@ export const PLAYGROUND_LANGUAGES: LanguageConfig[] = [
         header: "",
         footer: "",
         initialBody: `echo "Hello, World!"`,
-        extension: async () => StreamLanguage.define(python), // Nim syntax is similar to Python, using python mode as fallback/closest
+        extension: async () => python(), // Nim syntax is similar to Python, using python mode as fallback/closest
     },
     {
         id: "pascal",

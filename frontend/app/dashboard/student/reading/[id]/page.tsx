@@ -5,9 +5,9 @@ import UnitSidebar from "@/app/components/UnitSidebar";
 import UnitRenderer from "@/app/components/UnitRenderer";
 
 const sidebarUnits = [
-    { id: 1, type: "Reading", title: "Introduction to Web development", done: true, active: true },
-    { id: 2, type: "Coding", title: "JS: Object Methods", done: false, active: false },
-    { id: 3, type: "Coding", title: "CSS Display: Float and Clear", done: false, active: false },
+    { id: "1", type: "Reading", title: "Introduction to Web development", done: true, active: true },
+    { id: "2", type: "Coding", title: "JS: Object Methods", done: false, active: false },
+    { id: "3", type: "Coding", title: "CSS Display: Float and Clear", done: false, active: false },
 ];
 
 export default function ReadingUnitPage() {

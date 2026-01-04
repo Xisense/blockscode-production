@@ -188,6 +188,7 @@ export default function CourseDetailsView({ isOpen, onClose, course, userRole = 
                 isOpen={isEnrollModalOpen}
                 onClose={() => setIsEnrollModalOpen(false)}
                 courseTitle={course.title}
+                courseId={course.slug} // Assuming slug is used as ID or we need to pass ID. If ID is missing in props, we might need to add it.
                 onEnroll={(newStudents) => {
                     console.log('Enrolled:', newStudents);
                     // Add logic to refresh or update list
