@@ -92,7 +92,8 @@ export default function ExamLoginPage() {
                 // Set mandatory auth marker for this specific exam
                 localStorage.setItem(`exam_${targetSlug}_auth`, 'true');
 
-                router.push(`/exam/${targetSlug}`);
+                // Use replace to prevent going back to login page
+                router.replace(`/exam/${targetSlug}`);
             } else {
                 router.push('/exam');
             }

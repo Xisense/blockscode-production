@@ -4,11 +4,12 @@ import React, { useState } from "react";
 interface PlaygroundTerminalProps {
     output: string[];
     onClear: () => void;
+    customInput: string;
+    onCustomInputChange: (val: string) => void;
 }
 
-export default function PlaygroundTerminal({ output, onClear }: PlaygroundTerminalProps) {
+export default function PlaygroundTerminal({ output, onClear, customInput, onCustomInputChange }: PlaygroundTerminalProps) {
     const [showCustomInput, setShowCustomInput] = useState(false);
-    const [customInput, setCustomInput] = useState("");
 
     return (
         <div className="flex flex-col h-full bg-[#0d1117] text-slate-300 font-mono text-sm overflow-hidden">
@@ -27,7 +28,7 @@ export default function PlaygroundTerminal({ output, onClear }: PlaygroundTermin
                         </div>
                         <textarea
                             value={customInput}
-                            onChange={(e) => setCustomInput(e.target.value)}
+                            onChange={(e) => onCustomInputChange(e.target.value)}
                             placeholder="Type your test input here..."
                             className="flex-1 bg-[#161b22] border border-slate-800 rounded-xl p-4 text-[13px] text-slate-300 outline-none focus:border-orange-500/50 transition-colors resize-none custom-scrollbar"
                         />

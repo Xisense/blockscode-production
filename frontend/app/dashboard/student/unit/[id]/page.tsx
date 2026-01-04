@@ -7,12 +7,15 @@ import UnitNavHeader from '@/app/components/UnitNavHeader';
 import UnitSidebar from '@/app/components/UnitSidebar';
 import { CourseService } from '@/services/api/CourseService';
 import { StudentService } from '@/services/api/StudentService';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/app/components/Common/Toast';
 
 export default function StudentUnitPage({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
     const params = React.use(paramsPromise);
     const id = params.id;
+    const searchParams = useSearchParams();
+    const attemptIdParam = searchParams.get('attemptId');
+
     const [currentQuestion, setCurrentQuestion] = useState<UnitQuestion | null>(null);
     const [loading, setLoading] = useState(true);
     const [showSidebar, setShowSidebar] = useState(false);
@@ -21,10 +24,27 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
     const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>();
     const [attempts, setAttempts] = useState<any[]>([]);
     const [isExecuting, setIsExecuting] = useState(false);
+    const [executedBlocks, setExecutedBlocks] = useState<Set<string>>(new Set());
     const { success: showSuccess, error: showError } = useToast();
 
     const [courseModules, setCourseModules] = useState<any[] | null>(null);
     const [courseTests, setCourseTests] = useState<any[] | null>(null);
+
+    // Handle deep linking to specific attempt
+    useEffect(() => {
+        if (attemptIdParam && attempts.length > 0) {
+            const attempt = attempts.find(a => a.id === attemptIdParam);
+            if (attempt) {
+                setSelectedAttemptId(attempt.id);
+                // We don't switch tab to 'attempts' because UnitRenderer handles 
+                // attempt viewing in the 'question' tab (via read-only editor/view)
+                // But if we want to show the list, we'd switch. 
+                // Usually "view attempt" means see the code/answer.
+                // UnitRenderer uses `selectedAttemptId` to show read-only view in the main area.
+                setActiveTab('question'); 
+            }
+        }
+    }, [attemptIdParam, attempts]);
 
     useEffect(() => {
         async function loadUnit() {
@@ -37,7 +57,20 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
                 ]);
                 setCurrentQuestion(unitData as UnitQuestion);
                 setIsBookmarked(bookmarks.some((b: any) => b.unitId === id));
-                setAttempts(attemptsData);
+                
+                // Process attempts to extract testCases from content if needed
+                const processedAttempts = attemptsData.map((a: any) => {
+                    let testCases = a.testCases;
+                    let content = a.content;
+                    
+                    // If content is an object (Prisma JSON), check for testCases inside
+                    if (!testCases && content && typeof content === 'object' && !Array.isArray(content)) {
+                        if (content.testCases) testCases = content.testCases;
+                    }
+                    
+                    return { ...a, testCases };
+                });
+                setAttempts(processedAttempts);
 
                 // Fetch parent Course modules for section navigation if available
                 const courseSlug = (unitData as any)?.module?.course?.slug;
@@ -97,8 +130,10 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
         if (!currentQuestion) return;
         try {
             // Determine status based on question type and data
-            let status = 'COMPLETED';
-            let score = 100;
+            let status = 'IN_PROGRESS';
+            let score = 0;
+            let content = data;
+            let testCases = undefined;
 
             // Simple mock evaluation logic for demo purposes
             if (currentQuestion.type === 'MCQ' || currentQuestion.type === 'MultiSelect') {
@@ -115,28 +150,100 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
                     const isCorrect = selectedIds.length === correctIds.length &&
                         selectedIds.every(id => correctIds.includes(id));
                     score = isCorrect ? 100 : 0;
+                    status = isCorrect ? 'COMPLETED' : 'IN_PROGRESS';
                 } else {
                     // Fallback: if no correct answer is defined, assume success if they submitted
                     score = 100;
+                    status = 'COMPLETED';
                 }
             } else if (currentQuestion.type === 'Coding') {
-                // For coding, we'll mock that it passes all test cases if it's not empty
-                score = (typeof data === 'string' && data.length > 10) ? 100 : 0;
+                // If data comes from UnitRenderer's handleSubmit, it's an object with score and code
+                if (typeof data === 'object' && data.code !== undefined) {
+                    score = data.score;
+                    content = data.code;
+                    testCases = data.testCases;
+                    
+                    // Check completion based on test cases
+                    if (typeof testCases === 'string') {
+                        const [passed, total] = testCases.split('/').map(s => parseInt(s.trim()));
+                        if (passed === total && total > 0) {
+                            status = 'COMPLETED';
+                        }
+                    } else if (score === 100) {
+                        status = 'COMPLETED';
+                    }
+                } else {
+                    // Fallback for legacy or direct calls
+                    score = (typeof data === 'string' && data.length > 10) ? 100 : 0;
+                    content = data;
+                    status = score === 100 ? 'COMPLETED' : 'IN_PROGRESS';
+                }
+            } else if (currentQuestion.type === 'Web' || currentQuestion.type === 'Notebook') {
+                // Mark as completed on submission
+                status = 'COMPLETED';
+                score = 100;
+            } else if (currentQuestion.type === 'Reading') {
+                status = 'COMPLETED';
+                score = 100;
+                content = { completed: true };
             }
 
             await StudentService.submitUnit(id, {
                 status: status,
-                content: data,
-                score: score
-            });
+                content: { code: content, testCases },
+                score: score,
+                ...(testCases ? { testCases } : {})
+            } as any);
             // Refresh attempts
             const newAttempts = await StudentService.getUnitSubmissions(id);
-            setAttempts(newAttempts);
+            
+            // Process new attempts same as initial load
+            const processedAttempts = newAttempts.map((a: any) => {
+                let tc = a.testCases;
+                let c = a.content;
+                if (!tc && c && typeof c === 'object' && !Array.isArray(c)) {
+                    if (c.testCases) tc = c.testCases;
+                }
+                return { ...a, testCases: tc };
+            });
+            
+            setAttempts(processedAttempts);
             showSuccess('submitted answer..', 'Success');
         } catch (error) {
             console.error('Failed to submit:', error);
             showError('Failed to submit answer.', 'Error');
         }
+    };
+
+    // Auto-complete Reading units with no code blocks
+    useEffect(() => {
+        if (!currentQuestion || currentQuestion.type !== 'Reading') return;
+
+        const hasCodeBlocks = currentQuestion.readingContent?.some((b: any) => b.type === 'code' || b.codeConfig);
+        if (!hasCodeBlocks) {
+             const isCompleted = attempts.some(a => a.status === 'COMPLETED');
+             if (!isCompleted) {
+                 handleSubmit('READING_COMPLETED');
+             }
+        }
+    }, [currentQuestion, attempts]);
+
+    const handleCodeBlockRun = (blockId: string) => {
+        if (!currentQuestion || currentQuestion.type !== 'Reading') return;
+        
+        setExecutedBlocks(prev => {
+            const next = new Set(prev).add(blockId);
+            
+            // Check completion
+            const codeBlocks = currentQuestion.readingContent?.filter((b: any) => b.type === 'code' || b.codeConfig) || [];
+            if (codeBlocks.length > 0 && codeBlocks.every((b: any) => next.has(b.id))) {
+                 const isCompleted = attempts.some(a => a.status === 'COMPLETED');
+                 if (!isCompleted) {
+                     handleSubmit('READING_ALL_BLOCKS_RUN');
+                 }
+            }
+            return next;
+        });
     };
 
     const viewingAttempt = currentQuestion ? attempts.find(a => a.id === selectedAttemptId) : undefined;
@@ -409,13 +516,19 @@ export default function StudentUnitPage({ params: paramsPromise }: { params: Pro
                             attempts={attempts}
                             selectedAttemptId={selectedAttemptId}
                             onAttemptSelect={handleAttemptSelect}
-                            viewingAttemptAnswer={viewingAttempt?.content}
+                            viewingAttemptAnswer={(() => {
+                                const c = viewingAttempt?.content;
+                                // If content is object with code property, return code. Otherwise return content as is.
+                                if (c && typeof c === 'object' && !Array.isArray(c) && c.code) return c.code;
+                                return c;
+                            })()}
                             onClearAttemptSelection={() => setSelectedAttemptId(undefined)}
                             onRun={handleRun}
                             onSubmit={handleSubmit}
                             isExecuting={isExecuting}
                             onNext={handleNextUnit}
                             onPrevious={handlePreviousUnit}
+                            onCodeBlockRun={handleCodeBlockRun}
                             sidebar={
                                 <UnitSidebar
                                     units={sidebarUnits}

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 
 import { MonitoringGateway } from '../monitoring/monitoring.gateway';
@@ -12,7 +12,16 @@ export class TeacherService {
         private examService: ExamService
     ) { }
 
-    async getStats(userId: string) {
+    private checkAccess(resource: any, user: any) {
+        if (!resource) return;
+        if (resource.creatorId === user.id) return true;
+        if (user.role === 'ADMIN' && resource.orgId === user.orgId) return true;
+        if (user.role === 'SUPER_ADMIN') return true;
+        throw new ForbiddenException('Access denied: You do not own this resource');
+    }
+
+    async getStats(user: any) {
+        const userId = user.id;
         const totalExams = await this.prisma.exam.count({ where: { creatorId: userId, isActive: true } });
         const totalStudents = await this.prisma.user.count({ where: { role: 'STUDENT' } }); // TODO: Scope to Org?
         const recentSubmissionsCount = await this.prisma.examSession.count({
@@ -30,7 +39,7 @@ export class TeacherService {
         };
     }
 
-    async getExam(idOrSlug: string, userId: string) {
+    async getExam(idOrSlug: string, user: any) {
         const exam = await this.prisma.exam.findFirst({
             where: {
                 OR: [
@@ -40,14 +49,14 @@ export class TeacherService {
             }
         });
 
-        if (exam && (exam as any).creatorId !== userId) {
-            throw new Error('Access denied: You do not own this exam');
+        if (exam) {
+            this.checkAccess(exam, user);
         }
 
         return exam;
     }
 
-    async getCourse(idOrSlug: string, userId: string) {
+    async getCourse(idOrSlug: string, user: any) {
         const course = await this.prisma.course.findFirst({
             where: {
                 OR: [
@@ -64,19 +73,26 @@ export class TeacherService {
             }
         });
 
-        if (course && (course as any).creatorId !== userId) {
-            throw new Error('Access denied: You do not own this course');
+        if (course) {
+            this.checkAccess(course, user);
         }
 
         return course;
     }
 
-    async getRecentSubmissions(userId: string) {
+    async getRecentSubmissions(user: any) {
+        const whereClause: any = {
+            status: 'COMPLETED'
+        };
+
+        if (user.role === 'ADMIN') {
+            whereClause.exam = { orgId: user.orgId };
+        } else {
+            whereClause.exam = { creatorId: user.id };
+        }
+
         const submissions = await this.prisma.examSession.findMany({
-            where: {
-                exam: { creatorId: userId },
-                status: 'COMPLETED'
-            },
+            where: whereClause,
             take: 5,
             orderBy: { updatedAt: 'desc' },
             include: {
@@ -94,9 +110,16 @@ export class TeacherService {
         }));
     }
 
-    async getMyModules(userId: string) {
+    async getMyModules(user: any) {
+        const whereClause: any = {};
+        if (user.role === 'ADMIN') {
+            whereClause.orgId = user.orgId;
+        } else {
+            whereClause.creatorId = user.id;
+        }
+
         const courses = await this.prisma.course.findMany({
-            where: { creatorId: userId },
+            where: whereClause,
             include: {
                 _count: {
                     select: { students: true }
@@ -115,17 +138,26 @@ export class TeacherService {
         }));
     }
 
-    async getStudents(userId: string) {
+    async getStudents(user: any) {
+        const whereClause: any = { role: 'STUDENT' };
+        const courseFilter: any = {};
+        const submissionFilter: any = {};
+
+        if (user.role === 'ADMIN') {
+            whereClause.orgId = user.orgId;
+            courseFilter.orgId = user.orgId;
+            submissionFilter.unit = { module: { course: { orgId: user.orgId } } };
+        } else {
+            whereClause.courses = { some: { creatorId: user.id } };
+            courseFilter.creatorId = user.id;
+            submissionFilter.unit = { module: { course: { creatorId: user.id } } };
+        }
+
         const students = await this.prisma.user.findMany({
-            where: {
-                role: 'STUDENT',
-                courses: {
-                    some: { creatorId: userId }
-                }
-            },
+            where: whereClause,
             include: {
                 courses: {
-                    where: { creatorId: userId },
+                    where: courseFilter,
                     select: {
                         id: true,
                         title: true,
@@ -139,13 +171,7 @@ export class TeacherService {
                     }
                 },
                 unitSubmissions: {
-                    where: {
-                        unit: {
-                            module: {
-                                course: { creatorId: userId }
-                            }
-                        }
-                    },
+                    where: submissionFilter,
                     select: {
                         status: true,
                         unitId: true
@@ -190,16 +216,20 @@ export class TeacherService {
         });
     }
 
-    async getStudentAnalytics(studentId: string, teacherId: string) {
+    async getStudentAnalytics(studentId: string, user: any) {
         // Verify teacher has access to this student
-        const enrollment = await this.prisma.course.findFirst({
-            where: {
-                creatorId: teacherId,
-                students: { some: { id: studentId } }
-            }
-        });
-
-        if (!enrollment) throw new Error('Access denied: Student not enrolled in your courses');
+        if (user.role === 'ADMIN') {
+            const student = await this.prisma.user.findUnique({ where: { id: studentId } });
+            if (!student || student.orgId !== user.orgId) throw new Error('Access denied: Student not in your organization');
+        } else {
+            const enrollment = await this.prisma.course.findFirst({
+                where: {
+                    creatorId: user.id,
+                    students: { some: { id: studentId } }
+                }
+            });
+            if (!enrollment) throw new Error('Access denied: Student not enrolled in your courses');
+        }
 
         const submissions = await this.prisma.unitSubmission.findMany({
             where: { userId: studentId },
@@ -217,8 +247,13 @@ export class TeacherService {
             orderBy: { createdAt: 'desc' }
         });
 
-        // Filter submissions to only those from teacher's courses
-        const filteredSubmissions = submissions.filter((s: any) => s.unit.module.course.creatorId === teacherId);
+        // Filter submissions to only those from teacher's courses or org's courses
+        const filteredSubmissions = submissions.filter((s: any) => {
+            if (user.role === 'ADMIN') {
+                return s.unit.module.course.orgId === user.orgId;
+            }
+            return s.unit.module.course.creatorId === user.id;
+        });
 
         // Weekly activity
         const weeklyActivity = [];
@@ -269,6 +304,8 @@ export class TeacherService {
             fullMark: 150
         }));
 
+        const streak = await this.calculateStudentStreak(studentId);
+
         return {
             weeklyActivity,
             courseMastery,
@@ -278,9 +315,61 @@ export class TeacherService {
                 passedAttempts: filteredSubmissions.filter((s: any) => s.status === 'COMPLETED').length,
                 successRate: filteredSubmissions.length > 0
                     ? Math.round((filteredSubmissions.filter((s: any) => s.status === 'COMPLETED').length / filteredSubmissions.length) * 100)
-                    : 0
+                    : 0,
+                streak
             }
         };
+    }
+
+    private async calculateStudentStreak(userId: string) {
+        const [sessions, unitSubmissions] = await Promise.all([
+            this.prisma.examSession.findMany({
+                where: { userId },
+                select: { createdAt: true }
+            }),
+            this.prisma.unitSubmission.findMany({
+                where: { userId },
+                select: { createdAt: true }
+            })
+        ]);
+
+        const allActivities = [
+            ...sessions.map(s => s.createdAt),
+            ...unitSubmissions.map(u => u.createdAt)
+        ].sort((a, b) => b.getTime() - a.getTime());
+
+        if (allActivities.length === 0) return 0;
+
+        let streak = 0;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const lastActivityDate = new Date(allActivities[0]);
+        lastActivityDate.setHours(0, 0, 0, 0);
+
+        const daysDiff = Math.floor((today.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (daysDiff > 1) return 0;
+
+        const activityDates = new Set(
+            allActivities.map((d: Date) => {
+                const date = new Date(d);
+                date.setHours(0, 0, 0, 0);
+                return date.getTime();
+            })
+        );
+
+        let currentDate = new Date(today);
+        if (daysDiff === 1) {
+            currentDate.setDate(currentDate.getDate() - 1);
+        }
+
+        while (activityDates.has(currentDate.getTime())) {
+            streak++;
+            currentDate.setDate(currentDate.getDate() - 1);
+        }
+
+        return streak;
     }
 
     async getStudentAttempts(studentId: string, teacherId: string) {
@@ -362,20 +451,40 @@ export class TeacherService {
             orderBy: { createdAt: 'desc' }
         });
 
-        return submissions.map((sub: any) => ({
-            id: sub.id,
-            unitId: sub.unitId,
-            unitTitle: sub.unit.title,
-            unitType: sub.unit.type,
-            courseTitle: sub.unit.module.course.title,
-            status: sub.status,
-            score: sub.score,
-            createdAt: sub.createdAt,
-            updatedAt: sub.updatedAt
-        }));
+        return submissions.map((sub: any) => {
+            let testCases = '-';
+            if (sub.content && typeof sub.content === 'object' && !Array.isArray(sub.content)) {
+                const contentObj = sub.content as any;
+                if (contentObj.testCases) {
+                    testCases = contentObj.testCases;
+                }
+            }
+            
+            // Fallback logic
+            if (testCases === '-' && sub.score !== null) {
+                testCases = sub.score === 100 ? '1 / 1' : '0 / 1';
+            }
+
+            return {
+                id: sub.id,
+                unitId: sub.unitId,
+                unitTitle: sub.unit.title,
+                unitType: sub.unit.type,
+                courseTitle: sub.unit.module.course.title,
+                status: sub.status,
+                score: sub.score,
+                testCases: testCases,
+                createdAt: sub.createdAt,
+                updatedAt: sub.updatedAt
+            };
+        });
     }
 
-    async enrollStudent(courseId: string, studentId: string) {
+    async enrollStudent(courseId: string, studentId: string, user: any) {
+        const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+        if (!course) throw new Error('Course not found');
+        this.checkAccess(course, user);
+
         return this.prisma.course.update({
             where: { id: courseId },
             data: {
@@ -386,26 +495,87 @@ export class TeacherService {
         });
     }
 
-    async enrollByEmails(courseId: string, emails: string[]) {
-        const users = await this.prisma.user.findMany({
-            where: { email: { in: emails } }
-        });
+    async unenrollStudent(courseId: string, studentId: string, user: any) {
+        console.log('Service unenroll:', { courseId, studentId });
+        const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+        if (!course) {
+            console.log('Course not found:', courseId);
+            throw new NotFoundException('Course not found');
+        }
+        this.checkAccess(course, user);
 
-        if (users.length === 0) return { success: false, message: 'No students found' };
-
-        await this.prisma.course.update({
+        return this.prisma.course.update({
             where: { id: courseId },
             data: {
                 students: {
-                    connect: users.map((u: any) => ({ id: u.id }))
+                    disconnect: { id: studentId }
                 }
             }
         });
-
-        return { success: true, count: users.length };
     }
 
-    async getSubmission(examId: string, identifier: string, teacherId: string) {
+    async enrollByEmails(courseId: string, emails: string[], user: any) {
+        const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+        if (!course) throw new Error('Course not found');
+        this.checkAccess(course, user);
+
+        const results = [];
+        let enrolledCount = 0;
+        let failedCount = 0;
+
+        for (const email of emails) {
+            try {
+                const student = await this.prisma.user.findUnique({ where: { email } });
+                
+                if (!student) {
+                    results.push({ email, success: false, error: 'User not found' });
+                    failedCount++;
+                    continue;
+                }
+
+                // Check if already enrolled
+                const isEnrolled = await this.prisma.course.findFirst({
+                    where: {
+                        id: courseId,
+                        students: { some: { id: student.id } }
+                    }
+                });
+
+                if (isEnrolled) {
+                    results.push({ email, success: false, error: 'Already enrolled' });
+                    failedCount++;
+                    continue;
+                }
+
+                await this.prisma.course.update({
+                    where: { id: courseId },
+                    data: {
+                        students: {
+                            connect: { id: student.id }
+                        }
+                    }
+                });
+
+                results.push({ email, success: true, user: { id: student.id, name: student.name } });
+                enrolledCount++;
+
+            } catch (error: any) {
+                results.push({ email, success: false, error: error.message });
+                failedCount++;
+            }
+        }
+
+        return {
+            summary: {
+                totalProcessed: emails.length,
+                enrolled: enrolledCount,
+                failed: failedCount
+            },
+            details: results
+        };
+    }
+
+    async getSubmission(examId: string, identifier: string, user: any) {
         // Try finding session directly by ID first (most reliable)
         let session = null;
 
@@ -417,7 +587,7 @@ export class TeacherService {
                 where: { id: identifier },
                 include: {
                     user: { select: { name: true, email: true, rollNumber: true } },
-                    exam: { select: { title: true, questions: true, duration: true, creatorId: true } }
+                    exam: { select: { title: true, questions: true, duration: true, creatorId: true, orgId: true } }
                 }
             });
         }
@@ -441,7 +611,7 @@ export class TeacherService {
                     },
                     include: {
                         user: { select: { name: true, email: true, rollNumber: true } },
-                        exam: { select: { title: true, questions: true, duration: true, creatorId: true } }
+                        exam: { select: { title: true, questions: true, duration: true, creatorId: true, orgId: true } }
                     }
                 });
             }
@@ -449,9 +619,7 @@ export class TeacherService {
 
         if (!session) throw new Error('Submission not found');
 
-        if (session.exam.creatorId !== teacherId) {
-            throw new Error('Access denied: You do not own the exam for this submission');
-        }
+        this.checkAccess(session.exam, user);
 
         const transformed = this.examService.transformExam(session.exam);
 
@@ -485,19 +653,24 @@ export class TeacherService {
         });
     }
 
-    async getExams(userId: string) {
+    async getExams(user: any) {
+        const where: any = {};
+        if (user.role === 'ADMIN') {
+            where.orgId = user.orgId;
+        } else {
+            where.creatorId = user.id;
+        }
         return this.prisma.exam.findMany({
-            where: { creatorId: userId },
+            where,
             orderBy: { updatedAt: 'desc' }
         });
     }
 
-    async deleteCourse(id: string, userId: string) {
+    async deleteCourse(id: string, user: any) {
         try {
             const course = await this.prisma.course.findUnique({ where: { id } });
-            if (!course || course.creatorId !== userId) {
-                throw new Error('Access denied: You do not own this course');
-            }
+            if (!course) return { success: true, message: 'Course already deleted' };
+            this.checkAccess(course, user);
 
             // 0. Disconnect students
             await this.prisma.course.update({
@@ -533,11 +706,10 @@ export class TeacherService {
         }
     }
 
-    async updateCourse(id: string, userId: string, data: any) {
+    async updateCourse(id: string, user: any, data: any) {
         const existing = await this.prisma.course.findUnique({ where: { id } });
-        if (!existing || existing.creatorId !== userId) {
-            throw new Error('Access denied: You do not own this course');
-        }
+        if (!existing) throw new Error('Course not found');
+        this.checkAccess(existing, user);
 
         const course = await this.prisma.course.update({
             where: { id },
@@ -647,12 +819,15 @@ export class TeacherService {
         return regex.test(str);
     }
 
-    async createCourse(userId: string, data: any, orgId?: string | null) {
+    async createCourse(user: any, data: any) {
+        const orgId = user.role === 'SUPER_ADMIN' && data.orgId ? data.orgId : user.orgId;
+        if (!orgId) throw new Error('Organization ID is required');
+
         const course = await this.prisma.course.create({
             data: {
                 title: data.title,
                 slug: data.slug || `course-${Date.now()}`,
-                creatorId: userId, // Ensure Prisma schema has this
+                creatorId: user.id, // Ensure Prisma schema has this
                 orgId: orgId,
                 // ... map other fields explicitly or cast data if needed
                 shortDescription: data.shortDescription,
@@ -692,12 +867,15 @@ export class TeacherService {
         return course;
     }
 
-    async createExam(userId: string, data: any, orgId?: string | null) {
+    async createExam(user: any, data: any) {
+        const orgId = user.role === 'SUPER_ADMIN' && data.orgId ? data.orgId : user.orgId;
+        if (!orgId) throw new Error('Organization ID is required');
+
         return this.prisma.exam.create({
             data: {
                 title: data.title,
                 slug: data.slug || `exam-${Date.now()}`,
-                creatorId: userId,
+                creatorId: user.id,
                 orgId: orgId,
                 shortDescription: data.shortDescription,
                 longDescription: data.longDescription,
@@ -721,11 +899,35 @@ export class TeacherService {
         });
     }
 
-    async updateExam(id: string, userId: string, data: any) {
+    async updateExam(id: string, user: any, data: any) {
         const existing = await this.prisma.exam.findUnique({ where: { id } });
-        if (!existing || (existing as any).creatorId !== userId) {
-            throw new Error('Access denied: You do not own this exam');
+        if (!existing) throw new Error('Exam not found');
+        this.checkAccess(existing, user);
+
+        // Calculate total marks from questions if provided
+        let calculatedTotalMarks = 0;
+        const questionsSource = data.sections || data.questions;
+        
+        const sumMarks = (items: any[]) => {
+            items.forEach(item => {
+                if (item.questions && Array.isArray(item.questions)) {
+                    sumMarks(item.questions);
+                } else if (item.type || item.marks || item.points) {
+                    calculatedTotalMarks += (Number(item.marks) || Number(item.points) || (item.type === 'Coding' ? 10 : 1));
+                }
+            });
+        };
+
+        if (questionsSource) {
+             if (Array.isArray(questionsSource)) {
+                 sumMarks(questionsSource);
+             } else if (typeof questionsSource === 'object') {
+                 sumMarks(Object.values(questionsSource));
+             }
         }
+        
+        // Use calculated if > 0, else use provided, else undefined
+        const finalTotalMarks = calculatedTotalMarks > 0 ? calculatedTotalMarks : (data.totalMarks ? Number(data.totalMarks) : undefined);
 
         return this.prisma.exam.update({
             where: { id },
@@ -737,7 +939,7 @@ export class TeacherService {
                 difficulty: data.difficulty,
                 tags: data.tags,
                 duration: data.duration ? Number(data.duration) : undefined,
-                totalMarks: data.totalMarks ? Number(data.totalMarks) : undefined,
+                totalMarks: finalTotalMarks,
                 testCode: data.testCode,
                 testCodeType: data.testCodeType,
                 rotationInterval: data.rotationInterval ? Number(data.rotationInterval) : null,
@@ -754,14 +956,12 @@ export class TeacherService {
         });
     }
 
-    async deleteExam(id: string, userId: string) {
+    async deleteExam(id: string, user: any) {
         try {
             // 0. Check if exists and ownership
             const exam = await this.prisma.exam.findUnique({ where: { id } });
             if (!exam) return { success: true, message: 'Exam already deleted' };
-            if ((exam as any).creatorId !== userId) {
-                throw new Error('Access denied: You do not own this exam');
-            }
+            this.checkAccess(exam, user);
 
             // 1. Delete Feedbacks
             await this.prisma.feedback.deleteMany({ where: { examId: id } });
@@ -787,12 +987,11 @@ export class TeacherService {
         }
     }
 
-    async getMonitoredStudents(examId: string, userId: string) {
+    async getMonitoredStudents(examId: string, user: any) {
         // Verify ownership
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
-        if (!exam || (exam as any).creatorId !== userId) {
-            throw new Error('Access denied: You do not own this exam');
-        }
+        if (!exam) throw new Error('Exam not found');
+        this.checkAccess(exam, user);
 
         // Fetch all sessions for this exam
         const sessions = await this.prisma.examSession.findMany({
@@ -846,12 +1045,11 @@ export class TeacherService {
         });
     }
 
-    async getFeedbacks(examId: string, userId: string) {
+    async getFeedbacks(examId: string, user: any) {
         // Verify ownership
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
-        if (!exam || (exam as any).creatorId !== userId) {
-            throw new Error('Access denied: You do not own this exam');
-        }
+        if (!exam) throw new Error('Exam not found');
+        this.checkAccess(exam, user);
 
         const feedbacks = await this.prisma.feedback.findMany({
             where: { examId },
@@ -877,12 +1075,11 @@ export class TeacherService {
         }));
     }
 
-    async terminateExamSession(examId: string, studentId: string, teacherId: string) {
+    async terminateExamSession(examId: string, studentId: string, user: any) {
         // Verify ownership
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
-        if (!exam || (exam as any).creatorId !== teacherId) {
-            throw new Error('Access denied: You do not own this exam');
-        }
+        if (!exam) throw new Error('Exam not found');
+        this.checkAccess(exam, user);
 
         // Update session status
         await this.prisma.examSession.updateMany({
@@ -896,12 +1093,11 @@ export class TeacherService {
         return { success: true };
     }
 
-    async unterminateExamSession(examId: string, studentId: string, teacherId: string) {
+    async unterminateExamSession(examId: string, studentId: string, user: any) {
         // Verify ownership
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
-        if (!exam || (exam as any).creatorId !== teacherId) {
-            throw new Error('Access denied: You do not own this exam');
-        }
+        if (!exam) throw new Error('Exam not found');
+        this.checkAccess(exam, user);
 
         // Update session status back to IN_PROGRESS
         await this.prisma.examSession.updateMany({
@@ -912,12 +1108,11 @@ export class TeacherService {
         return { success: true };
     }
 
-    async getExamResults(examId: string, userId: string) {
+    async getExamResults(examId: string, user: any) {
         // Verify ownership
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
-        if (!exam || (exam as any).creatorId !== userId) {
-            throw new Error('Access denied: You do not own this exam');
-        }
+        if (!exam) throw new Error('Exam not found');
+        this.checkAccess(exam, user);
 
         const sessions = await this.prisma.examSession.findMany({
             where: { examId },
@@ -946,7 +1141,62 @@ export class TeacherService {
             const calculatedScore = this.examService.calculateScore(answers, exam.questions);
             const score = session.score !== null ? session.score : calculatedScore;
 
-            const totalMarks = Number(exam.totalMarks) || 0;
+            // Calculate total possible marks dynamically from questions
+            let dynamicTotalMarks = 0;
+            let questionsData = exam.questions as any;
+            
+            if (typeof questionsData === 'string') {
+                try {
+                    questionsData = JSON.parse(questionsData);
+                } catch (e) {
+                    console.error('Failed to parse exam questions JSON', e);
+                }
+            }
+            
+            const processQuestion = (q: any) => {
+                const marks = Number(q.marks) || Number(q.points) || (q.type === 'Coding' ? 10 : 1);
+                dynamicTotalMarks += marks;
+            };
+
+            if (questionsData) {
+                if (questionsData.sections && Array.isArray(questionsData.sections)) {
+                    questionsData.sections.forEach((sec: any) => {
+                        if (sec.questions && Array.isArray(sec.questions)) {
+                            sec.questions.forEach(processQuestion);
+                        }
+                    });
+                } else if (Array.isArray(questionsData)) {
+                    // Check if it's an array of sections or questions
+                    const firstItem = questionsData[0];
+                    if (firstItem && (firstItem.questions || firstItem.id?.startsWith('sec-'))) {
+                         // It's likely an array of sections
+                         questionsData.forEach((sec: any) => {
+                            if (sec.questions && Array.isArray(sec.questions)) {
+                                sec.questions.forEach(processQuestion);
+                            }
+                        });
+                    } else {
+                        // It's an array of questions
+                        questionsData.forEach(processQuestion);
+                    }
+                } else if (typeof questionsData === 'object') {
+                    // Handle object map structure
+                    Object.values(questionsData).forEach((sec: any) => {
+                        if (sec && typeof sec === 'object') {
+                            if (sec.questions && Array.isArray(sec.questions)) {
+                                sec.questions.forEach(processQuestion);
+                            } else if (sec.id && sec.type) {
+                                // Direct question in map (rare but possible)
+                                processQuestion(sec);
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Fallback to exam.totalMarks if dynamic calculation yields 0 (e.g. empty exam)
+            const totalMarks = dynamicTotalMarks > 0 ? dynamicTotalMarks : (Number(exam.totalMarks) || 0);
+            
             const status = totalMarks > 0
                 ? (score / totalMarks >= 0.4 ? 'Passed' : 'Failed')
                 : (session.status === 'COMPLETED' ? 'Submitted' : 'Failed');
@@ -974,28 +1224,37 @@ export class TeacherService {
         };
     }
 
-    async updateSubmissionScore(sessionId: string, newScore: number, teacherId: string) {
+    async updateSubmissionScore(sessionId: string, newScore: number, user: any, internalMarks?: Record<string, number>) {
         // Verify ownership via session -> exam
         const session = await this.prisma.examSession.findUnique({
             where: { id: sessionId },
             include: { exam: true }
         });
 
-        if (!session || (session.exam as any).creatorId !== teacherId) {
-            throw new Error('Access denied or session not found');
+        if (!session) throw new Error('Session not found');
+        this.checkAccess(session.exam, user);
+
+        const updateData: any = { score: newScore };
+
+        // If internal marks are provided, update the answers JSON
+        if (internalMarks) {
+            const currentAnswers = (session.answers as any) || {};
+            updateData.answers = {
+                ...currentAnswers,
+                _internal_marks: internalMarks
+            };
         }
 
         return this.prisma.examSession.update({
             where: { id: sessionId },
-            data: { score: newScore }
+            data: updateData
         });
     }
 
-    async publishResults(examId: string, teacherId: string) {
+    async publishResults(examId: string, user: any) {
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
-        if (!exam || (exam as any).creatorId !== teacherId) {
-            throw new Error('Access denied or exam not found');
-        }
+        if (!exam) throw new Error('Exam not found');
+        this.checkAccess(exam, user);
 
         return this.prisma.exam.update({
             where: { id: examId },

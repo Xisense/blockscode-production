@@ -13,6 +13,10 @@ interface Tab {
     code: string;
 }
 
+import { CodeExecutionService } from "@/services/api/CodeExecutionService";
+
+// ... existing imports ...
+
 export default function PlaygroundPage() {
     const [tabs, setTabs] = useState<Tab[]>([
         { id: 1, name: "playground", langId: "javascript", code: PLAYGROUND_LANGUAGES[1].initialBody }
@@ -20,19 +24,43 @@ export default function PlaygroundPage() {
     const [activeTabId, setActiveTabId] = useState(1);
     const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
+    const [isRunning, setIsRunning] = useState(false);
+    const [customInput, setCustomInput] = useState("");
 
     const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
-    const currentLang = PLAYGROUND_LANGUAGES.find(l => l.id === activeTab.langId) || PLAYGROUND_LANGUAGES[1];
+    const currentLang = PLAYGROUND_LANGUAGES.find(l => l.id === activeTab.langId) || PLAYGROUND_LANGUAGES[0];
 
-    const handleRun = () => {
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        setTerminalOutput(prev => [
-            ...prev,
-            `Compiling ${currentLang.label} code...`,
-            `Execution started at ${time}`,
-            `Hello from the ${currentLang.label} environment!`,
-            `Process finished with exit code 0.`
-        ]);
+    const handleRun = async () => {
+        if (isRunning) return;
+        setIsRunning(true);
+        setTerminalOutput([]); // Clear previous output
+
+        try {
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            // Execute via Piston Service
+            const result = await CodeExecutionService.run(
+                currentLang.id,
+                activeTab.code,
+                customInput
+            );
+
+            // Show ONLY the output (or error if failed, or generic message if empty)
+            const finalOutput = result.output || (result.stderr ? `Error: ${result.stderr}` : "No output returned.");
+            setTerminalOutput([finalOutput]);
+        } catch (error) {
+            console.error("Execution error:", error);
+            setTerminalOutput(prev => [
+                ...prev,
+                `Error: Failed to execute code.`,
+                String(error)
+            ]);
+        } finally {
+            setIsRunning(false);
+        }
+    };
+
+    const handleCodeChange = (newCode: string) => {
+        setTabs(tabs.map(t => t.id === activeTabId ? { ...t, code: newCode } : t));
     };
 
     const handleClear = () => {
@@ -51,6 +79,7 @@ export default function PlaygroundPage() {
     };
 
     const deleteTab = (id: number) => {
+        if (!id) return;
         if (tabs.length === 1) return;
         setTabs(tabs.filter(t => t.id !== id));
         if (activeTabId === id) {
@@ -64,18 +93,20 @@ export default function PlaygroundPage() {
         setTabs(tabs.map(t => t.id === activeTabId ? { ...t, langId, code: lang?.initialBody || "" } : t));
     };
 
+    // ... (keep handleClear, addTab, deleteTab, updateTabLang) ...
+
     return (
         <div className="h-screen flex flex-col bg-white overflow-hidden">
+            {/* ... Navbar ... */}
             <Navbar />
 
             <div className="flex-1 flex overflow-hidden">
-                {/* Main Workspace (Full Width - Sidebar Removed) */}
                 <div className="flex-1 overflow-hidden relative">
                     <SplitPane
                         initialLeftWidth={55}
                         leftContent={
                             <div className="h-full flex flex-col bg-white relative">
-                                {/* Header/Tab Bar */}
+                                {/* ... Tab Bar ... */}
                                 <div className="h-12 border-b border-slate-100 flex items-center px-4 justify-between bg-white z-20">
                                     <div className="flex items-center gap-1 h-full">
                                         <div className="pr-4 border-r border-slate-100 mr-2">
@@ -121,7 +152,6 @@ export default function PlaygroundPage() {
                                     </div>
 
                                     <div className="flex items-center gap-4">
-                                        {/* REFRESH ICON BESIDE EXECUTE */}
                                         <button
                                             onClick={handleClear}
                                             title="Clear Terminal"
@@ -132,10 +162,20 @@ export default function PlaygroundPage() {
 
                                         <button
                                             onClick={handleRun}
-                                            className="flex items-center gap-2 px-6 py-1.5 bg-[var(--brand)] text-white text-[11px] font-black uppercase tracking-widest rounded-md hover:bg-[var(--brand-dark)] transition-all active:scale-95 shadow-sm shadow-[var(--brand-light)]"
+                                            disabled={isRunning}
+                                            className={`flex items-center gap-2 px-6 py-1.5 bg-[var(--brand)] text-white text-[11px] font-black uppercase tracking-widest rounded-md hover:bg-[var(--brand-dark)] transition-all active:scale-95 shadow-sm shadow-[var(--brand-light)] ${isRunning ? 'opacity-70 cursor-wait' : ''}`}
                                         >
-                                            Execute
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                                            {isRunning ? (
+                                                <>
+                                                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                    Running
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Execute
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                                                </>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
@@ -143,6 +183,8 @@ export default function PlaygroundPage() {
                                 <PlaygroundEditor
                                     key={activeTabId}
                                     language={currentLang}
+                                    code={activeTab.code}
+                                    onChange={handleCodeChange}
                                 />
                             </div>
                         }
@@ -150,6 +192,8 @@ export default function PlaygroundPage() {
                             <PlaygroundTerminal
                                 output={terminalOutput}
                                 onClear={handleClear}
+                                customInput={customInput}
+                                onCustomInputChange={setCustomInput}
                             />
                         }
                     />

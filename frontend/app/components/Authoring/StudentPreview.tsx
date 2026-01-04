@@ -84,7 +84,7 @@ export default function StudentPreview({ question, mode, setMode }: StudentPrevi
         if ((question.type === 'MCQ' || question.type === 'MultiSelect') && question.options) {
             return {
                 ...base,
-                mcqOptions: question.options.map(o => ({ id: o.id, text: o.text }))
+                mcqOptions: question.options.map(o => ({ id: o.id, text: o.text, isCorrect: o.isCorrect }))
             };
         }
 

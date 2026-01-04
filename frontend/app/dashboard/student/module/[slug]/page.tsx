@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/app/components/Navbar";
 import Loading from "@/app/loading";
 import { CourseService } from '@/services/api/CourseService';
+import { StudentService } from '@/services/api/StudentService';
 
 
 type Attempt = { date: string; score: string; status: "success" | "failed" };
@@ -15,11 +16,11 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
   const slug = params.slug;
 
   const [course, setCourse] = useState<any | null>(null);
+  const [progressData, setProgressData] = useState<{ totalUnits: number, completedUnitIds: string[], attempts: Record<string, Attempt[]> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<"learning" | "attempts" | "tests">("learning");
-  const [expandedLesson, setExpandedLesson] = useState<string | null>(null);
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [activeTestIndex, setActiveTestIndex] = useState(0);
 
@@ -157,15 +158,21 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
   };
 
   const performanceItems = selectedModule ? [
-    ...(selectedModule.units || []).map((u: any, idx: number) => ({
-      id: `L-${u.id}`,
-      // Use contiguous 1-based index within the module for display
-      displayId: idx + 1,
-      title: u.title || `Lesson ${idx + 1}`,
-      type: u.type,
-      status: 'Not Attempted',
-      attempts: []
-    })),
+    ...(selectedModule.units || []).map((u: any, idx: number) => {
+      const unitAttempts = progressData?.attempts?.[u.id] || [];
+      const isCompleted = progressData?.completedUnitIds.includes(u.id);
+      const status = isCompleted ? 'Completed' : (unitAttempts.length > 0 ? 'In Progress' : 'Not Attempted');
+
+      return {
+        id: `L-${u.id}`,
+        // Use contiguous 1-based index within the module for display
+        displayId: idx + 1,
+        title: u.title || `Lesson ${idx + 1}`,
+        type: u.type,
+        status: status,
+        attempts: unitAttempts
+      };
+    }),
     ...(course?.tests?.flatMap((t: any) => (t.questions || []).map((q: any, qi: number) => ({
       id: `T-${t.id}-${q.id}`,
       // Display question index within the test
@@ -182,9 +189,13 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
       setLoading(true);
       setError(null);
       try {
-        const data = await CourseService.getCourse(slug);
+        const [data, progress] = await Promise.all([
+          CourseService.getCourse(slug),
+          StudentService.getCourseProgress(slug)
+        ]);
         if (!mounted) return;
         setCourse(data);
+        setProgressData(progress);
       } catch (err: any) {
         console.error('Failed to load course/module:', err);
         setError(err?.message || 'Failed to load module');
@@ -248,9 +259,9 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
           <div className="flex items-center gap-6">
             <div className="hidden sm:flex items-center gap-4">
               <div className="w-32 bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
-                <div className="h-full bg-[var(--brand)] rounded-full transition-all duration-1000" style={{ width: `0%` }} />
+                <div className="h-full bg-[var(--brand)] rounded-full transition-all duration-1000" style={{ width: `${progressData && progressData.totalUnits > 0 ? Math.round((progressData.completedUnitIds.length / progressData.totalUnits) * 100) : 0}%` }} />
               </div>
-              <span className="text-xs font-black text-[var(--brand)]">0% Mastery</span>
+              <span className="text-xs font-black text-[var(--brand)]">{progressData && progressData.totalUnits > 0 ? Math.round((progressData.completedUnitIds.length / progressData.totalUnits) * 100) : 0}% Mastery</span>
             </div>
             <button className="p-2 rounded-xl text-slate-400 hover:text-[var(--brand)] hover:bg-[var(--brand-lighter)] transition-all active:scale-95">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
@@ -270,28 +281,43 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
                 ref={scrollRef}
                 className="overflow-x-auto no-scrollbar flex gap-4 pb-12 snap-x snap-mandatory px-1"
               >
-                {course.modules.map((m: any, i: number) => (
+                {course.modules.map((m: any, i: number) => {
+                  // Calculate module progress
+                  const moduleUnits = m.units || [];
+                  const completedCount = moduleUnits.filter((u: any) => progressData?.completedUnitIds.includes(u.id)).length;
+                  const totalCount = moduleUnits.length;
+                  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+                  const isCompleted = totalCount > 0 && completedCount === totalCount;
+
+                  return (
                   <div
                     key={m.id}
                     onClick={() => setActiveModuleIndex(i)}
                     className={`min-w-[240px] max-w-[240px] h-[170px] cursor-pointer snap-start rounded-[24px] border-2 p-6 transition-all duration-300 relative flex flex-col justify-between ${activeModuleIndex === i ? 'bg-white border-[var(--brand)] shadow-2xl shadow-[var(--brand)]/10' : 'bg-white border-slate-100 hover:border-slate-200'}`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black transition-colors ${activeModuleIndex === i ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'bg-slate-50 text-slate-400'}`}>{i + 1}</div>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black transition-colors ${activeModuleIndex === i ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'bg-slate-50 text-slate-400'}`}>
+                        {isCompleted ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="text-emerald-500"><polyline points="20 6 9 17 4 12" /></svg>
+                        ) : (
+                          i + 1
+                        )}
+                      </div>
+                      {isCompleted && <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded-md">Completed</span>}
                     </div>
 
                     <h4 className={`font-black text-[15px] leading-snug line-clamp-2 ${activeModuleIndex === i ? 'text-slate-900' : 'text-slate-600'}`}>{m.title}</h4>
 
                     <div className="flex items-center justify-between text-[10px] font-black text-slate-400 border-t border-slate-50 pt-3">
                       <div className="flex items-center gap-2 uppercase tracking-tighter">
-                        {(m.units || []).length} Lessons
+                        {totalCount} Lessons
                       </div>
                       <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full bg-[var(--brand)] transition-all opacity-30 ${activeModuleIndex === i ? 'opacity-100' : ''}`} style={{ width: `${Math.min(100, (m.progress || 0))}%` }}></div>
+                        <div className={`h-full rounded-full bg-[var(--brand)] transition-all opacity-30 ${activeModuleIndex === i ? 'opacity-100' : ''}`} style={{ width: `${progressPercent}%` }}></div>
                       </div>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
 
               <CardNav direction="right" onClick={() => scroll('right', scrollRef)} />
@@ -299,19 +325,29 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
 
             <div className="space-y-3">
               <h2 className="text-lg font-black text-slate-800 tracking-tight ml-2 mb-4">Unit Curriculum</h2>
-              {(selectedModule?.units || []).map((u: any, uIdx: number) => (
+              {(selectedModule?.units || []).map((u: any, uIdx: number) => {
+                const isCompleted = progressData?.completedUnitIds.includes(u.id);
+                return (
                 <div key={u.id} className="group">
                   <div
-                    className={`px-8 py-5 rounded-[24px] border transition-all cursor-pointer flex items-center justify-between ${expandedLesson === u.id ? 'bg-white border-[var(--brand-light)] shadow-xl shadow-[var(--brand)]/5 ring-1 ring-[var(--brand)]/5' : 'bg-white border-slate-100/80 hover:border-slate-300/50'}`}
+                    className={`px-8 py-5 rounded-[24px] border transition-all cursor-pointer flex items-center justify-between bg-white border-slate-100/80 hover:border-slate-300/50`}
                   >
                     <div
                       onClick={() => router.push(`/dashboard/student/unit/${u.id}`)}
                       className="flex items-center gap-10 flex-1"
                     >
-                      <div className={`text-xs font-black w-6 text-center transition-colors ${expandedLesson === u.id ? 'text-[var(--brand)]' : 'text-slate-300'}`}>{uIdx + 1}</div>
+                      <div className={`text-xs font-black w-6 text-center transition-colors text-slate-300`}>
+                        {isCompleted ? (
+                          <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                          </div>
+                        ) : (
+                          uIdx + 1
+                        )}
+                      </div>
                       <div>
                         <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1">{u.type}</p>
-                        <h3 className={`text-[15px] font-bold transition-colors ${expandedLesson === u.id ? 'text-slate-900' : 'text-slate-700'}`}>{u.title || `Lesson ${uIdx + 1}`}</h3>
+                        <h3 className={`text-[15px] font-bold transition-colors text-slate-700`}>{u.title || `Lesson ${uIdx + 1}`}</h3>
                       </div>
                     </div>
 
@@ -324,24 +360,11 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                         </button>
                       </div>
-                      <div
-                        onClick={(e) => { e.stopPropagation(); setExpandedLesson(expandedLesson === u.id ? null : u.id); }}
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${expandedLesson === u.id ? 'rotate-180 bg-[var(--brand-light)] text-[var(--brand)]' : 'text-slate-300'}`}
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                      </div>
                     </div>
                   </div>
-
-                  {expandedLesson === u.id && (
-                    <div className="px-12 py-1 animate-fade-in">
-                      <div className="bg-slate-50/50 rounded-[24px] border border-dashed border-[var(--brand-light)] p-8">
-                        <p className="text-sm text-slate-400 font-bold italic text-center py-4">No performance history recorded for this unit.</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : activeTab === "tests" ? (
@@ -364,7 +387,7 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
                   return (
                     <div
                       key={t.id}
-                      onClick={() => { setActiveTestIndex(i); setExpandedLesson(null); }}
+                      onClick={() => { setActiveTestIndex(i); }}
                       className={`min-w-[240px] max-w-[240px] h-[170px] cursor-pointer snap-start rounded-[24px] border-2 p-6 transition-all duration-300 relative flex flex-col justify-between ${activeTestIndex === i ? 'bg-white border-[var(--brand)] shadow-2xl shadow-[var(--brand)]/10' : 'bg-white border-slate-100 hover:border-slate-200'}`}
                     >
                       <div className="flex items-center justify-between">
@@ -456,16 +479,16 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
                     {activeTest.questions.map((q: any, qi: number) => (
                       <div key={q.id} className="group">
                         <div
-                          className={`px-8 py-5 rounded-[24px] border transition-all cursor-pointer flex items-center justify-between ${expandedLesson === q.id ? 'bg-white border-[var(--brand-light)] shadow-xl shadow-[var(--brand)]/5 ring-1 ring-[var(--brand)]/5' : 'bg-white border-slate-100/80 hover:border-slate-300/50'}`}
+                          className={`px-8 py-5 rounded-[24px] border transition-all cursor-pointer flex items-center justify-between bg-white border-slate-100/80 hover:border-slate-300/50`}
                         >
                           <div
                             onClick={() => router.push(`/dashboard/student/unit/${q.id}`)}
                             className="flex items-center gap-10 flex-1"
                           >
-                            <div className={`text-xs font-black w-6 text-center transition-colors ${expandedLesson === q.id ? 'text-[var(--brand)]' : 'text-slate-300'}`}>{qi + 1}</div>
+                            <div className={`text-xs font-black w-6 text-center transition-colors text-slate-300`}>{qi + 1}</div>
                             <div>
                               <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1">{q.type || 'Test'}</p>
-                              <h3 className={`text-[15px] font-bold transition-colors ${expandedLesson === q.id ? 'text-slate-900' : 'text-slate-700'}`}>{q.title || `Question ${qi + 1}`}</h3>
+                              <h3 className={`text-[15px] font-bold transition-colors text-slate-700`}>{q.title || `Question ${qi + 1}`}</h3>
                             </div>
                           </div>
 
@@ -480,22 +503,8 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
                                 </button>
                               )}
                             </div>
-                            <div
-                              onClick={(e) => { e.stopPropagation(); setExpandedLesson(expandedLesson === q.id ? null : q.id); }}
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${expandedLesson === q.id ? 'rotate-180 bg-[var(--brand-light)] text-[var(--brand)]' : 'text-slate-300'}`}
-                            >
-                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                            </div>
                           </div>
                         </div>
-
-                        {expandedLesson === q.id && (
-                          <div className="px-12 py-1 animate-fade-in">
-                            <div className="bg-slate-50/50 rounded-[24px] border border-dashed border-[var(--brand-light)] p-8">
-                              <p className="text-sm text-slate-400 font-bold italic text-center py-4">No performance history recorded for this test question.</p>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -579,14 +588,23 @@ export default function ModulePage({ params: paramsPromise }: { params: Promise<
                             <div className="max-w-4xl mx-auto border border-slate-50 rounded-xl bg-slate-50/30 px-6 py-4">
                               <div className="flex items-center text-[9px] font-black uppercase text-slate-400 mb-4 border-b border-slate-100 pb-2">
                                 <div className="flex-1 text-center">Attempts</div>
-                                <div className="flex-1 text-center">Score</div>
+                                <div className="flex-1 text-center">Test Cases</div>
                                 <div className="flex-1 text-center">Status</div>
                               </div>
                               <div className="space-y-4">
                                 {q.attempts.map((attempt: any, idx: number) => (
-                                  <div key={idx} className="flex items-center text-[11px] font-bold text-slate-600">
+                                  <div 
+                                    key={idx} 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      // Extract unit ID from q.id (format: L-unitId or T-testId-unitId)
+                                      const unitId = q.id.startsWith('L-') ? q.id.substring(2) : q.id.split('-').pop();
+                                      router.push(`/dashboard/student/unit/${unitId}?attemptId=${attempt.id}`);
+                                    }}
+                                    className="flex items-center text-[11px] font-bold text-slate-600 hover:bg-slate-100 p-2 rounded-lg cursor-pointer transition-colors"
+                                  >
                                     <div className="flex-1 text-center font-mono opacity-80">{attempt.date}</div>
-                                    <div className="flex-1 text-center">{attempt.score}</div>
+                                    <div className={`flex-1 text-center ${attempt.status === 'success' ? 'text-emerald-500' : 'text-rose-400'}`}>{attempt.testCases}</div>
                                     <div className="flex-1 text-center">
                                       <span className={`px-2 py-0.5 rounded-md ${attempt.status === 'success' ? 'text-emerald-500' : 'text-rose-500'}`}>
                                         {attempt.status}

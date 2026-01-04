@@ -10,7 +10,7 @@ import StudentPreview from "./StudentPreview";
 import AlertModal from "../Common/AlertModal";
 import { useToast } from "../Common/Toast";
 
-export default function CourseBuilder({ initialData, onDelete, onSave, basePath, userRole, orgPermissions = { allowCourseTests: true } }: { initialData?: Course, onDelete?: () => void, onSave?: (data: any) => Promise<void>, basePath?: string, userRole?: 'admin' | 'teacher' | 'super-admin', orgPermissions?: { allowCourseTests?: boolean } }) {
+export default function CourseBuilder({ initialData, onDelete, onSave, basePath, userRole, orgPermissions = { allowCourseTests: true }, organizationId }: { initialData?: Course, onDelete?: () => void, onSave?: (data: any) => Promise<void>, basePath?: string, userRole?: 'admin' | 'teacher' | 'super-admin', orgPermissions?: { allowCourseTests?: boolean }, organizationId?: string }) {
     const { success } = useToast();
     const [course, setCourse] = useState<Course>(initialData || {
         title: "",
@@ -38,6 +38,34 @@ export default function CourseBuilder({ initialData, onDelete, onSave, basePath,
     const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile' | null>(null);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info', onConfirm: () => void }>({ isOpen: false, title: '', message: '', onConfirm: () => { } });
+
+    // Persistence: Load from localStorage on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const key = initialData?.id ? `course_builder_draft_${initialData.id}` : 'course_builder_draft_new';
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    setCourse(prev => ({ ...prev, ...parsed }));
+                    success("Restored draft from local storage", "Draft Restored");
+                } catch (e) {
+                    console.error("Failed to load draft", e);
+                }
+            }
+        }
+    }, []);
+
+    // Persistence: Save to localStorage on change
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const key = course.id ? `course_builder_draft_${course.id}` : 'course_builder_draft_new';
+            const timeout = setTimeout(() => {
+                localStorage.setItem(key, JSON.stringify(course));
+            }, 1000); // Debounce 1s
+            return () => clearTimeout(timeout);
+        }
+    }, [course]);
 
     // Date formatting helpers for datetime-local inputs
     const formatISOToInput = (iso?: string) => {
@@ -290,8 +318,9 @@ export default function CourseBuilder({ initialData, onDelete, onSave, basePath,
                                         if (t.startDate && !t.startDate.endsWith('Z')) t.startDate = convertInputToISO(t.startDate);
                                         if (t.endDate && !t.endDate.endsWith('Z')) t.endDate = convertInputToISO(t.endDate);
                                     });
-                                    const res = await TeacherService.createCourse(sanitized);
+                                    const res = await TeacherService.createCourse(sanitized, organizationId);
                                     setCourse(prev => ({ ...prev, id: res.id }));
+                                    localStorage.removeItem('course_builder_draft_new');
                                     success("Course created successfully!", "Saved");
                                     // Optional: window.history.pushState({}, '', `${basePath}/${res.id}/edit`);
                                 }

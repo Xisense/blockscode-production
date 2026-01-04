@@ -12,9 +12,10 @@ interface CourseEditorProps {
     onDelete?: () => void; // Optional override
     userRole?: 'admin' | 'teacher';
     basePath?: string;
+    organizationId?: string;
 }
 
-export default function CourseEditor({ initialData, onDelete, userRole = 'teacher', basePath = '/dashboard/teacher' }: CourseEditorProps) {
+export default function CourseEditor({ initialData, onDelete, userRole = 'teacher', basePath = '/dashboard/teacher', organizationId }: CourseEditorProps) {
     const router = useRouter();
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
     const [userData, setUserData] = useState<any>(null);
@@ -46,6 +47,7 @@ export default function CourseEditor({ initialData, onDelete, userRole = 'teache
                 basePath={basePath}
                 userRole={userRole === 'admin' ? 'admin' : 'teacher'}
                 orgPermissions={userData?.features}
+                organizationId={organizationId}
             />
             <AlertModal
                 isOpen={alertConfig.isOpen}

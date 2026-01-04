@@ -50,6 +50,24 @@ services:
     networks:
       - exam-network
 
+  # Datadog Agent
+  datadog:
+    image: gcr.io/datadoghq/agent:7
+    container_name: datadog_agent
+    environment:
+      - DD_API_KEY=${DD_API_KEY}
+      - DD_SITE=${DD_SITE}
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true # Allows the agent to receive traces from the host
+    ports:
+      - "8126:8126" # Trace port
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+    networks:
+      - exam-network
+
 volumes:
   postgres_data:
   redis_data:

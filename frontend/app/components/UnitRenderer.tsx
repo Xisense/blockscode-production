@@ -1,83 +1,19 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import SplitPane from './SplitPane';
 import ProblemStatement from './ProblemStatement';
 import MCQOptions from './MCQOptions';
 import AttemptsView, { Attempt } from './AttemptsView';
-import CodeEditor from './Editor/CodeEditor';
 import WebEditor from './WebEditor/WebEditor';
+import CodingQuestionRenderer from './CodingQuestionRenderer';
 
 import EmbeddedCodeRunner from './Reading/EmbeddedCodeRunner';
 import PythonNotebook from './Features/Notebook/PythonNotebook';
 import { SUPPORTED_LANGUAGES } from './Editor/languages';
+import { UnitQuestion, QuestionType } from '@/types/unit';
 
-export type QuestionType = 'MCQ' | 'MultiSelect' | 'Coding' | 'Web' | 'Reading' | 'Notebook';
-
-export interface UnitQuestion {
-    id: string;
-    type: QuestionType;
-    title: string;
-    description: string; // Rich text / HTML
-    difficulty?: string;
-    topic?: string;
-    // Coding specific
-    codingConfig?: {
-        languageId: string;
-        header: string;
-        initialCode: string;
-        footer: string;
-        // Teacher Dashboard names
-        head?: string;
-        body?: string;
-        tail?: string;
-        testCases?: Array<any>;
-        // Normalized templates per language (if teacher provided per-lang templates)
-        templates?: Record<string, {
-            header?: string;
-            initialCode?: string;
-            footer?: string;
-            // Teacher Dashboard names
-            head?: string;
-            body?: string;
-            tail?: string;
-            testCases?: Array<any>;
-        }>;
-        // Optional list of allowed languages (e.g. ['javascript','python'])
-        allowedLanguages?: string[];
-    };
-    // Web specific
-    webConfig?: {
-        initialHTML: string;
-        initialCSS: string;
-        initialJS: string;
-        showFiles?: { html: boolean; css: boolean; js: boolean };
-        testCases?: Array<any>;
-    };
-    // MCQ specific
-    mcqOptions?: { id: string; text: string; isCorrect?: boolean; }[];
-    module?: any;
-    moduleUnits?: any[];
-    moduleTitle?: string;
-    // Reading specific
-    readingContent?: {
-        id: string;
-        type: 'text' | 'code' | 'code-runner';
-        content?: string; // HTML for text
-        codeConfig?: {
-            languageId: string;
-            initialCode: string;
-        };
-        runnerConfig?: {
-            language: string;
-            initialCode: string;
-        };
-    }[];
-    // Notebook specific
-    notebookConfig?: {
-        initialCode: string;
-        language: 'python';
-    };
-}
+export type { UnitQuestion, QuestionType };
 
 import UnitNavHeader from './UnitNavHeader';
 
@@ -114,7 +50,14 @@ interface UnitRendererProps {
     onAnswerChange?: (data: any) => void;
     currentAnswer?: any;
     isExecuting?: boolean;
+    onCodeBlockRun?: (blockId: string) => void;
+    examId?: string;
+    hideAttemptBanner?: boolean;
+    marksObtained?: number;
+    questionTotalMarks?: number;
 }
+
+import { CodeExecutionService } from '@/services/api/CodeExecutionService';
 
 export default function UnitRenderer({
     question,
@@ -145,23 +88,51 @@ export default function UnitRenderer({
     onSubmit,
     onAnswerChange,
     currentAnswer,
-    isExecuting = false
+    isExecuting = false,
+    onCodeBlockRun,
+    examId,
+    hideAttemptBanner = false,
+    marksObtained,
+    questionTotalMarks
 }: UnitRendererProps) {
 
     const [isReadingFullScreen, setIsReadingFullScreen] = useState(false);
     const containerRef = React.useRef<HTMLDivElement>(null);
 
-    // Selected language for Coding questions (can be changed by student if allowed)
-    const [selectedCodingLang, setSelectedCodingLang] = React.useState<string | null>(question.codingConfig?.languageId || (question.codingConfig?.allowedLanguages && question.codingConfig.allowedLanguages[0]) || null);
+    // Execution state
+    const [isRunning, setIsRunning] = useState(false);
+    const [terminalLogs, setTerminalLogs] = useState("");
+    const [executionResults, setExecutionResults] = useState<any[]>([]);
 
-    // Keep selected language in sync when question changes
+    // Selected language for Coding questions (can be changed by student if allowed)
+    const [selectedCodingLang, setSelectedCodingLang] = React.useState<string | null>(null);
+
+    // Initialize language from localStorage or default
     React.useEffect(() => {
-        const config = question.codingConfig;
-        const defaultLang = config?.languageId ||
-            (config?.allowedLanguages && config.allowedLanguages[0]) ||
-            (config?.templates ? Object.keys(config.templates)[0] : null);
-        setSelectedCodingLang(defaultLang);
+        if (typeof window !== 'undefined') {
+            const key = `unit_lang_${question.id}`;
+            const savedLang = localStorage.getItem(key);
+            
+            const config = question.codingConfig;
+            const defaultLang = config?.languageId ||
+                (config?.allowedLanguages && config.allowedLanguages[0]) ||
+                (config?.templates ? Object.keys(config.templates)[0] : null) || 
+                SUPPORTED_LANGUAGES[0].id;
+
+            if (savedLang && (!config?.allowedLanguages || config.allowedLanguages.includes(savedLang))) {
+                setSelectedCodingLang(savedLang);
+            } else {
+                setSelectedCodingLang(defaultLang);
+            }
+        }
     }, [question.id]);
+
+    const handleLanguageChange = (langId: string) => {
+        setSelectedCodingLang(langId);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(`unit_lang_${question.id}`, langId);
+        }
+    };
 
     const toggleFullScreen = () => {
         if (!containerRef.current) return;
@@ -283,7 +254,7 @@ export default function UnitRenderer({
                             <article className="prose prose-slate max-w-none text-slate-600 leading-relaxed space-y-6 prose-p:text-slate-600 prose-headings:text-slate-800 prose-code:text-[var(--brand-dark)] prose-code:bg-[var(--brand-lighter)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:text-sm"
                                 style={{ fontSize: contentFontSize ? `${contentFontSize}px` : undefined }}
                             >
-                                <div dangerouslySetInnerHTML={{ __html: question.description }} />
+                                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(question.description) }} />
 
                                 {/* Render Embedded Code Runner if config exists (Legacy/Fallback) */}
                                 {question.codingConfig && !question.readingContent && (
@@ -293,6 +264,7 @@ export default function UnitRenderer({
                                         <EmbeddedCodeRunner
                                             language={SUPPORTED_LANGUAGES.find(l => l.id === (question.codingConfig?.languageId || (question.codingConfig?.templates && Object.keys(question.codingConfig.templates)[0]))) || SUPPORTED_LANGUAGES[0]}
                                             initialCode={question.codingConfig.initialCode || question.codingConfig.body}
+                                            onRunSuccess={() => onCodeBlockRun?.('legacy-runner')}
                                         />
                                     </div>
                                 )}
@@ -303,12 +275,13 @@ export default function UnitRenderer({
                                         {question.readingContent.map(block => (
                                             <div key={block.id}>
                                                 {block.type === 'text' ? (
-                                                    <div dangerouslySetInnerHTML={{ __html: block.content || '' }} />
+                                                    <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(block.content || '') }} />
                                                 ) : (
                                                     <div className="not-prose my-8">
                                                         <EmbeddedCodeRunner
                                                             language={SUPPORTED_LANGUAGES.find(l => l.id === (block.codeConfig?.languageId || block.runnerConfig?.language)) || SUPPORTED_LANGUAGES[0]}
                                                             initialCode={block.codeConfig?.initialCode || block.runnerConfig?.initialCode || ''}
+                                                            onRunSuccess={() => onCodeBlockRun?.(block.id)}
                                                         />
                                                     </div>
                                                 )}
@@ -345,10 +318,13 @@ export default function UnitRenderer({
         switch (question.type) {
             case 'MCQ':
             case 'MultiSelect':
+                const correctCount = question.mcqOptions?.filter(o => o.isCorrect).length || 0;
+                const maxSelections = question.type === 'MultiSelect' ? (correctCount > 0 ? correctCount : undefined) : 1;
                 return (
                     <MCQOptions
                         options={question.mcqOptions || []}
                         multiSelect={question.type === 'MultiSelect'}
+                        maxSelections={maxSelections}
                         selectedIds={hasAttemptSelected ? attemptAnswer : currentAnswer}
                         onSubmit={onSubmit || ((ids) => console.log('Submitted MCQ:', ids))}
                         onChange={onAnswerChange}
@@ -358,58 +334,24 @@ export default function UnitRenderer({
                     />
                 );
             case 'Coding':
-                // Templates & allowed languages may come from the question (teacher config)
-                const codingTemplates = question.codingConfig?.templates || {};
-                const allowedLangs = question.codingConfig?.allowedLanguages || Object.keys(codingTemplates) || [];
-
-                // Determine selected language (state kept in selectedCodingLang)
-                const activeLangId = selectedCodingLang || (question.codingConfig?.languageId) || (allowedLangs.length ? allowedLangs[0] : SUPPORTED_LANGUAGES[0].id);
-                const template = (codingTemplates as any)[activeLangId] || {};
-
-                // Find base language config and overlay template head/body/footer
-                const baseLang = SUPPORTED_LANGUAGES.find(l => l.id === activeLangId) || SUPPORTED_LANGUAGES[0];
-                const codingLanguage = {
-                    ...baseLang,
-                    id: activeLangId as any,
-                    header: template.header || template.head || question.codingConfig?.header || question.codingConfig?.head || baseLang.header,
-                    footer: template.footer || template.tail || question.codingConfig?.footer || question.codingConfig?.tail || baseLang.footer,
-                    initialBody: hasAttemptSelected ? attemptAnswer : (currentAnswer ?? template.initialCode ?? template.body ?? question.codingConfig?.initialCode ?? question.codingConfig?.body ?? baseLang.initialBody),
-                };
-
-                const activeTestCases = template.testCases || question.codingConfig?.testCases;
-
-                // Custom toolbar content: language selector (restrict to allowedLangs when provided)
-                const languageSelector = (
-                    <div className="flex items-center gap-3">
-                        <select
-                            value={activeLangId}
-                            onChange={(e) => setSelectedCodingLang(e.target.value)}
-                            className="bg-[#f8f9fa] border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-600 outline-none hover:border-slate-300 transition-colors"
-                        >
-                            {((allowedLangs && allowedLangs.length > 0) ? allowedLangs : SUPPORTED_LANGUAGES.map(l => l.id)).map((lid: string) => {
-                                const opt = SUPPORTED_LANGUAGES.find(s => s.id === lid) || { id: lid, label: lid } as any;
-                                return <option key={lid} value={lid}>{opt.label || lid}</option>;
-                            })}
-                        </select>
-                        <div className="text-sm text-slate-500 font-bold">Language</div>
-                    </div>
-                );
-
                 return (
-                    <CodeEditor
-                        language={codingLanguage}
-                        height="100%"
-                        className="border-none rounded-none"
-                        fontSize={contentFontSize}
-                        actions={{
-                            onRun: onRun ? () => onRun({ language: activeLangId }) : undefined,
-                            onChange: onAnswerChange,
-                            onSubmit: onSubmit
-                        }}
-                        isExecuting={isExecuting}
-                        testCases={activeTestCases}
-                        hideLanguageSelector={true}
-                        customToolbarContent={languageSelector}
+                    <CodingQuestionRenderer
+                        question={question}
+                        hasAttemptSelected={hasAttemptSelected}
+                        attemptAnswer={attemptAnswer}
+                        currentAnswer={currentAnswer}
+                        onAnswerChange={onAnswerChange}
+                        onSubmit={onSubmit}
+                        contentFontSize={contentFontSize}
+                        selectedCodingLang={selectedCodingLang}
+                        onLanguageChange={handleLanguageChange}
+                        isRunning={isRunning}
+                        setIsRunning={setIsRunning}
+                        terminalLogs={terminalLogs}
+                        setTerminalLogs={setTerminalLogs}
+                        executionResults={executionResults}
+                        setExecutionResults={setExecutionResults}
+                        examId={examId}
                     />
                 );
             case 'Web':
@@ -419,11 +361,12 @@ export default function UnitRenderer({
                         initialCSS={hasAttemptSelected ? attemptAnswer?.css || '' : (currentAnswer?.css ?? question.webConfig?.initialCSS)}
                         initialJS={hasAttemptSelected ? attemptAnswer?.js || '' : (currentAnswer?.js ?? question.webConfig?.initialJS)}
                         showFiles={question.webConfig?.showFiles}
-                        hideTestCases={false}
+                        hideTestCases={true}
                         fontSize={contentFontSize}
                         testCases={question.webConfig?.testCases}
                         onChange={onAnswerChange}
                         onSubmit={onSubmit}
+                        readOnly={hasAttemptSelected}
                     />
                 );
             case 'Notebook':
@@ -433,6 +376,7 @@ export default function UnitRenderer({
                         fontSize={contentFontSize}
                         onChange={onAnswerChange}
                         onSubmit={onSubmit}
+                        readOnly={hasAttemptSelected}
                     />
                 );
             // Reading case removed from here as it's handled at top level
@@ -450,7 +394,7 @@ export default function UnitRenderer({
             )}
 
             {/* Attempt Viewing Info Bar */}
-            {selectedAttemptId && (
+            {selectedAttemptId && !hideAttemptBanner && (
                 <div className="w-full bg-indigo-600/5 border-b border-indigo-100 px-6 py-2 flex items-center justify-between z-40 animate-in slide-in-from-top duration-300">
                     <div className="flex items-center gap-3">
                         <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center">
@@ -514,6 +458,8 @@ export default function UnitRenderer({
                                             hideHeader={true}
                                             fontSize={contentFontSize}
                                             isExamMode={isExamMode}
+                                            marksObtained={marksObtained}
+                                            questionTotalMarks={questionTotalMarks}
                                         />
 
                                         {/* Render reading content blocks (also for non-Reading question types) */}
@@ -522,12 +468,13 @@ export default function UnitRenderer({
                                                 {question.readingContent.map(block => (
                                                     <div key={block.id} className="mb-8">
                                                         {block.type === 'text' ? (
-                                                            <div dangerouslySetInnerHTML={{ __html: block.content || '' }} />
+                                                            <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(block.content || '') }} />
                                                         ) : (
                                                             <div className="not-prose my-8">
                                                                 <EmbeddedCodeRunner
                                                                     language={SUPPORTED_LANGUAGES.find(l => l.id === block.codeConfig?.languageId) || SUPPORTED_LANGUAGES[0]}
                                                                     initialCode={block.codeConfig?.initialCode || ''}
+                                                                    onRunSuccess={() => onCodeBlockRun?.(block.id)}
                                                                 />
                                                             </div>
                                                         )}

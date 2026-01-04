@@ -1,4 +1,5 @@
 import { Controller, Request, Post, Patch, UseGuards, Body, Get, UnauthorizedException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { User } from './user.decorator';
@@ -8,6 +9,7 @@ export class AuthController {
     constructor(private authService: AuthService) { }
 
     @Post('login')
+    @Throttle({ default: { limit: 5, ttl: 60000 } })
     async login(@Body() req: any) {
         // Manually validating for simplicity if LocalGuard isn't set up yet
         const user = await this.authService.validateUser(req.email, req.password);
@@ -25,6 +27,12 @@ export class AuthController {
     @Post('exam-login')
     async examLogin(@Body() data: { email: string; testCode: string; password?: string }) {
         return this.authService.examLogin(data.email, data.testCode, data.password);
+    }
+
+    @Post('forgot-password')
+    @Throttle({ default: { limit: 3, ttl: 60000 } })
+    async forgotPassword(@Body() data: { email: string }) {
+        return this.authService.forgotPassword(data.email);
     }
 
     @UseGuards(JwtAuthGuard)

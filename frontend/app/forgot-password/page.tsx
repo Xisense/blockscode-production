@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { BRAND } from "../constants/brand";
 import { Mail, ArrowLeft, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
+import { AuthService } from "@/services/api/AuthService";
 import { useOrganization } from "../context/OrganizationContext";
 
 export default function ForgotPasswordPage() {
@@ -11,6 +12,7 @@ export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [error, setError] = useState("");
     const { organization: orgContext } = useOrganization();
 
     const displayName = orgContext?.name || BRAND.name;
@@ -20,11 +22,15 @@ export default function ForgotPasswordPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-        // Simulate API delay
-        setTimeout(() => {
-            setIsLoading(false);
+        setError("");
+        try {
+            await AuthService.forgotPassword(email);
             setIsSubmitted(true);
-        }, 1500);
+        } catch (err: any) {
+            setError(err.message || "Something went wrong. Please try again.");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -60,6 +66,12 @@ export default function ForgotPasswordPage() {
                             <p className="text-slate-500 text-sm font-medium text-center px-2">
                                 Enter your email address below and we'll send you instructions to reset your password.
                             </p>
+
+                            {error && (
+                                <div className="bg-red-50 text-red-500 text-xs font-bold p-3 rounded-xl text-center border border-red-100">
+                                    {error}
+                                </div>
+                            )}
 
                             {/* Email Field */}
                             <div className="space-y-2">

@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { ExamService } from '../exam/exam.service';
 
 @Injectable()
 export class StudentService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private examService: ExamService
+    ) { }
 
     async getStats(userId: string) {
         // Calculate completed exams
@@ -36,21 +40,34 @@ export class StudentService {
     }
 
     private async calculateDailyStreak(userId: string): Promise<number> {
-        // Get all exam sessions ordered by date
-        const sessions = await this.prisma.examSession.findMany({
-            where: { userId, status: 'COMPLETED' },
-            orderBy: { createdAt: 'desc' },
-            select: { createdAt: true }
-        });
+        // Get all exam sessions and unit submissions ordered by date
+        const [sessions, unitSubmissions] = await Promise.all([
+            this.prisma.examSession.findMany({
+                where: { userId, status: 'COMPLETED' },
+                orderBy: { createdAt: 'desc' },
+                select: { createdAt: true }
+            }),
+            this.prisma.unitSubmission.findMany({
+                where: { userId }, // Count any submission as activity
+                orderBy: { createdAt: 'desc' },
+                select: { createdAt: true }
+            })
+        ]);
 
-        if (sessions.length === 0) return 0;
+        // Combine and sort all activity dates
+        const allActivities = [
+            ...sessions.map(s => s.createdAt),
+            ...unitSubmissions.map(u => u.createdAt)
+        ].sort((a, b) => b.getTime() - a.getTime());
+
+        if (allActivities.length === 0) return 0;
 
         let streak = 0;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         // Check if there's activity today or yesterday
-        const lastActivityDate = new Date(sessions[0].createdAt);
+        const lastActivityDate = new Date(allActivities[0]);
         lastActivityDate.setHours(0, 0, 0, 0);
 
         const daysDiff = Math.floor((today.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -60,10 +77,10 @@ export class StudentService {
 
         // Count consecutive days
         const activityDates = new Set(
-            sessions.map((s: any) => {
-                const d = new Date(s.createdAt);
-                d.setHours(0, 0, 0, 0);
-                return d.getTime();
+            allActivities.map((d: Date) => {
+                const date = new Date(d);
+                date.setHours(0, 0, 0, 0);
+                return date.getTime();
             })
         );
 
@@ -170,6 +187,46 @@ export class StudentService {
         });
     }
 
+    async getExamResult(userId: string, sessionId: string) {
+        const session = await this.prisma.examSession.findUnique({
+            where: { id: sessionId, userId },
+            include: {
+                exam: true,
+                user: { select: { name: true, email: true, rollNumber: true } }
+            }
+        });
+
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        if (!(session.exam as any).resultsPublished) {
+            throw new Error('Results not published yet');
+        }
+
+        const transformed = this.examService.transformExam(session.exam);
+
+        return {
+            details: {
+                sessionId: session.id,
+                studentName: session.user.name || session.user.email,
+                rollNo: session.user.rollNumber || 'N/A',
+                examId: session.examId,
+                examTitle: session.exam.title,
+                status: session.status,
+                score: session.score,
+                totalMarks: session.exam.totalMarks,
+                startTime: session.startTime,
+                endTime: session.endTime
+            },
+            questions: Object.values(transformed.questions),
+            questionsMap: transformed.questions,
+            sections: transformed.sections,
+            answers: session.answers,
+            attempts: (session.answers as any)?._internal_attempts || {}
+        };
+    }
+
     async getExamAttempts(userId: string) {
         const sessions = await this.prisma.examSession.findMany({
             where: {
@@ -228,17 +285,33 @@ export class StudentService {
             orderBy: { createdAt: 'desc' }
         });
 
-        return submissions.map((sub: any) => ({
-            id: sub.id,
-            unitId: sub.unitId,
-            unitTitle: sub.unit.title,
-            unitType: sub.unit.type,
-            courseTitle: sub.unit.module.course.title,
-            status: sub.status,
-            score: sub.score,
-            createdAt: sub.createdAt,
-            updatedAt: sub.updatedAt
-        }));
+        return submissions.map((sub: any) => {
+            let testCases = '-';
+            if (sub.content && typeof sub.content === 'object' && !Array.isArray(sub.content)) {
+                const contentObj = sub.content as any;
+                if (contentObj.testCases) {
+                    testCases = contentObj.testCases;
+                }
+            }
+            
+            // Fallback logic
+            if (testCases === '-' && sub.score !== null) {
+                testCases = sub.score === 100 ? '1 / 1' : '0 / 1';
+            }
+
+            return {
+                id: sub.id,
+                unitId: sub.unitId,
+                unitTitle: sub.unit.title,
+                unitType: sub.unit.type,
+                courseTitle: sub.unit.module.course.title,
+                status: sub.status,
+                score: sub.score,
+                testCases: testCases,
+                createdAt: sub.createdAt,
+                updatedAt: sub.updatedAt
+            };
+        });
     }
 
     async getAnalytics(userId: string) {
@@ -303,6 +376,8 @@ export class StudentService {
 
         const uniqueUnits = new Set(submissions.map((s: any) => s.unitId));
 
+        const streak = await this.calculateDailyStreak(userId);
+
         const courseMastery = Object.entries(courseStats).map(([subject, stats]) => ({
             subject: subject.substring(0, 15), // Truncate for display
             A: Math.round((stats.completedUnits.size / stats.units.size) * 150), // Current proficiency based on completion
@@ -319,7 +394,8 @@ export class StudentService {
                 passedAttempts: submissions.filter((s: any) => s.status === 'COMPLETED').length,
                 successRate: submissions.length > 0
                     ? Math.round((submissions.filter((s: any) => s.status === 'COMPLETED').length / submissions.length) * 100)
-                    : 0
+                    : 0,
+                streak
             }
         };
     }
@@ -478,5 +554,86 @@ export class StudentService {
                 score: data.score
             }
         });
+    }
+
+    async getCourseProgress(userId: string, courseSlug: string) {
+        // 1. Find the course and its modules/units
+        const course = await this.prisma.course.findUnique({
+            where: { slug: courseSlug },
+            include: {
+                modules: {
+                    include: {
+                        units: {
+                            select: { id: true }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!course) {
+            throw new Error('Course not found');
+        }
+
+        // 2. Extract all unit IDs
+        const unitIds = course.modules.flatMap(m => m.units.map(u => u.id));
+
+        // 3. Find ALL submissions for these units (not just completed)
+        const submissions = await this.prisma.unitSubmission.findMany({
+            where: {
+                userId,
+                unitId: { in: unitIds }
+            },
+            select: {
+                id: true,
+                unitId: true,
+                status: true,
+                score: true,
+                content: true,
+                createdAt: true
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        // 4. Group submissions by unitId
+        const attemptsMap: Record<string, any[]> = {};
+        const completedUnitIds = new Set<string>();
+
+        submissions.forEach(sub => {
+            if (!attemptsMap[sub.unitId]) {
+                attemptsMap[sub.unitId] = [];
+            }
+            
+            let testCases = '-';
+            if (sub.content && typeof sub.content === 'object' && !Array.isArray(sub.content)) {
+                const contentObj = sub.content as any;
+                if (contentObj.testCases) {
+                    testCases = contentObj.testCases;
+                }
+            }
+
+            // Fallback logic similar to AttemptsView
+            if (testCases === '-' && sub.score !== null) {
+                testCases = sub.score === 100 ? '1 / 1' : '0 / 1';
+            }
+
+            attemptsMap[sub.unitId].push({
+                id: sub.id,
+                date: sub.createdAt.toLocaleDateString() + ' ' + sub.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                score: sub.score !== null ? `${sub.score}%` : '-',
+                testCases: testCases,
+                status: sub.status === 'COMPLETED' ? 'success' : 'failed'
+            });
+
+            if (sub.status === 'COMPLETED') {
+                completedUnitIds.add(sub.unitId);
+            }
+        });
+
+        return {
+            totalUnits: unitIds.length,
+            completedUnitIds: Array.from(completedUnitIds),
+            attempts: attemptsMap
+        };
     }
 }

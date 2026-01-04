@@ -293,7 +293,7 @@ export default function Navbar({ basePath, userRole: roleOverride, examConfig }:
                 </button>
               )}
               {examConfig?.rightContent}
-              {!isTeacher && !isAdmin && !isSuperAdmin && !examConfig && <AppsMenu isTeacher={isTeacher} />}
+              {!isTeacher && !isAdmin && !isSuperAdmin && !examConfig && !mustChangePassword && <AppsMenu isTeacher={isTeacher} />}
               <ProfileMenu isTeacher={isTeacher} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} examConfig={examConfig} />
             </div>
           </div>
@@ -395,7 +395,7 @@ function ProfileMenu({ isTeacher, isAdmin, isSuperAdmin, examConfig }: { isTeach
     if (isSuperAdmin) return "Super Admin";
     if (isAdmin) return "Organization Admin";
     if (isTeacher) return "Instructor";
-    return "Premium Learner";
+    return "Learner";
   };
 
   const dashboardPath = isSuperAdmin ? '/dashboard/super-admin' : isAdmin ? '/dashboard/admin' : isTeacher ? '/dashboard/teacher' : '/dashboard/student';

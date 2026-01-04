@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
@@ -15,9 +17,15 @@ import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { CourseModule } from './modules/course/course.module';
 
+import { CodeExecutionModule } from './modules/code-execution/code-execution.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 100,
+    }]),
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
@@ -36,9 +44,16 @@ import { CourseModule } from './modules/course/course.module';
     SuperAdminModule,
     CourseModule,
     StudentModule,
-    OrganizationModule
+    OrganizationModule,
+    CodeExecutionModule
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule { }

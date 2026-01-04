@@ -26,6 +26,7 @@ import {
 } from "recharts";
 
 interface Attempt {
+    id: string;
     date: string;
     testCases: string;
     status: 'success' | 'failed';
@@ -33,6 +34,7 @@ interface Attempt {
 
 interface Question {
     id: number;
+    unitId: string;
     title: string;
     course: string;
     type: string;
@@ -68,7 +70,7 @@ export default function AnalyticsPage() {
                 } else {
                     // Fetch as student
                     data = await StudentService.getAnalytics();
-                    attemptsData = await StudentService.getAttempts();
+                    attemptsData = await StudentService.getUnitAttempts();
                 }
 
                 setAnalyticsData(data);
@@ -80,6 +82,7 @@ export default function AnalyticsPage() {
                     if (!unitMap.has(unitId)) {
                         unitMap.set(unitId, {
                             id: unitMap.size + 1,
+                            unitId: unitId,
                             title: sub.unitTitle,
                             course: sub.courseTitle,
                             type: sub.unitType,
@@ -89,9 +92,16 @@ export default function AnalyticsPage() {
                     }
 
                     const unit = unitMap.get(unitId)!;
+
+                    // If any attempt is COMPLETED, mark the whole unit as Submitted
+                    if (sub.status === "COMPLETED") {
+                        unit.status = "Submitted";
+                    }
+
                     unit.attempts.push({
+                        id: sub.id,
                         date: new Date(sub.createdAt).toLocaleString(),
-                        testCases: sub.score !== null ? `${sub.score}/100` : "N/A",
+                        testCases: sub.testCases || (sub.score !== null ? `${sub.score}/100` : "N/A"),
                         status: sub.status === "COMPLETED" ? "success" : "failed"
                     });
                 });
@@ -125,14 +135,14 @@ export default function AnalyticsPage() {
         return {
             totalQuestions: analyticsData.stats.totalQuestions,
             totalAttempts: analyticsData.stats.totalAttempts,
-            totalExecutions: analyticsData.stats.totalAttempts * 4,
+            totalExecutions: analyticsData.stats.totalAttempts, // Using actual attempts as executions count
             passedAttempts: analyticsData.stats.passedAttempts,
             failedAttempts: analyticsData.stats.totalAttempts - analyticsData.stats.passedAttempts,
             successRate: analyticsData.stats.successRate,
             avgAttempts: analyticsData.stats.totalQuestions > 0
                 ? (analyticsData.stats.totalAttempts / analyticsData.stats.totalQuestions).toFixed(1)
                 : 0,
-            streak: 0,
+            streak: analyticsData.stats.streak || 0,
             exams: {
                 total: questions.length,
                 passed: passedExams,
@@ -478,8 +488,19 @@ export default function AnalyticsPage() {
                                                                 <div>Outcome</div>
                                                             </div>
                                                             <div className="divide-y divide-slate-50">
-                                                                {q.attempts.map((attempt: Attempt, idx: number) => (
-                                                                    <div key={idx} className="grid grid-cols-3 px-8 py-4 text-[11px] font-bold text-slate-600 hover:bg-slate-50/50 transition-colors items-center text-center">
+                                                                {q.attempts.map((attempt: Attempt, idx: number) => {
+                                                                    const isTeacherView = !!searchParams.get("studentId");
+                                                                    return (
+                                                                    <div 
+                                                                        key={idx} 
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            if (!isTeacherView) {
+                                                                                router.push(`/dashboard/student/unit/${q.unitId}?attemptId=${attempt.id}`);
+                                                                            }
+                                                                        }}
+                                                                        className={`grid grid-cols-3 px-8 py-4 text-[11px] font-bold text-slate-600 items-center text-center transition-colors ${!isTeacherView ? 'cursor-pointer hover:bg-slate-50/50' : ''}`}
+                                                                    >
                                                                         <div className="font-mono text-slate-400">{attempt.date}</div>
                                                                         <div className="text-slate-800">{attempt.testCases}</div>
                                                                         <div>
@@ -488,7 +509,7 @@ export default function AnalyticsPage() {
                                                                             </span>
                                                                         </div>
                                                                     </div>
-                                                                ))}
+                                                                )})}
                                                             </div>
                                                         </div>
                                                     </div>

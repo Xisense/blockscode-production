@@ -27,8 +27,9 @@ export interface EditorActions {
     onFocus?: () => void;
     onCheatDetected?: (reason: string) => void;
     onChange?: (body: string) => void;
-    onRun?: () => void;
-    onSubmit?: (body: string) => void;
+    onRun?: (code?: string, input?: string, expectedOutput?: string, testCaseIndex?: number) => Promise<{ passed?: boolean; error?: boolean } | void> | void;
+    onSubmit?: (code: string) => Promise<{ passed?: boolean; error?: boolean } | void> | void;
+    onReset?: () => Promise<string | void> | string | void;
 }
 
 export interface CodeEditorProps {
@@ -45,4 +46,5 @@ export interface CodeEditorProps {
     fontSize?: number;
     // Test cases provided by the question (optional)
     testCases?: Array<any>;
+    terminalOutput?: string;
 }

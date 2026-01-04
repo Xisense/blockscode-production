@@ -17,8 +17,20 @@ const SUPPORTED_LANGUAGES = [
     { id: 'cpp', label: 'C++ 20' }
 ];
 
+interface Template {
+    head: string;
+    body: string;
+    tail: string;
+    solution: string;
+}
+
+interface CodingConfig {
+    templates: Record<string, Template>;
+    testCases: any[];
+}
+
 export default function CodingEditor({ question, onChange }: CodingEditorProps) {
-    const config = question.codingConfig || {
+    const defaultConfig: CodingConfig = {
         templates: {
             javascript: { head: '', body: '// Write your code here', tail: '', solution: '' },
             python: { head: '', body: '# Write your code here', tail: '', solution: '' }
@@ -26,13 +38,40 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
         testCases: []
     };
 
+    // Use local state to prevent stale closure issues during rapid edits
+    const [config, setConfig] = useState<CodingConfig>(() => {
+        const base = question.codingConfig || defaultConfig;
+        return {
+            ...base,
+            templates: {
+                ...defaultConfig.templates,
+                ...(base.templates || {})
+            }
+        };
+    });
+
+    // Only sync from props when the question ID changes (e.g. switching questions)
+    // This avoids overwriting local progress with stale props during the render loop
+    React.useEffect(() => {
+        const base = question.codingConfig || defaultConfig;
+        setConfig({
+            ...base,
+            templates: {
+                ...defaultConfig.templates,
+                ...(base.templates || {})
+            }
+        });
+    }, [question.id]);
+
     const { warning } = useToast();
     const [activeLang, setActiveLang] = useState<string>('javascript');
     const [activeTemplateSection, setActiveTemplateSection] = useState<'head' | 'body' | 'tail' | 'solution'>('body');
     const [expandedTestCase, setExpandedTestCase] = useState<number | null>(null);
 
-    const updateConfig = (updates: Partial<typeof config>) => {
-        onChange({ codingConfig: { ...config, ...updates } });
+    const updateConfig = (updates: any) => {
+        const newConfig = { ...config, ...updates };
+        setConfig(newConfig);
+        onChange({ codingConfig: newConfig });
     };
 
     const updateTemplate = (lang: string, field: 'head' | 'body' | 'tail' | 'solution', value: string) => {
@@ -65,38 +104,44 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
 
     const addTestCase = () => {
         const newTestCase = { input: "", output: "", isPublic: false, points: 5 };
-        const newTestCases = [...config.testCases, newTestCase];
+        const newTestCases = [...(config.testCases || []), newTestCase];
         const newMarks = newTestCases.reduce((acc, tc) => acc + (tc.points || 0), 0);
 
+        const newConfig = { ...config, testCases: newTestCases };
+        setConfig(newConfig);
         onChange({
-            codingConfig: { ...config, testCases: newTestCases },
+            codingConfig: newConfig,
             marks: newMarks
         });
-        setExpandedTestCase(config.testCases.length);
+        setExpandedTestCase(newTestCases.length - 1);
     };
 
     const removeTestCase = (index: number) => {
-        const newTestCases = config.testCases.filter((_, i) => i !== index);
+        const newTestCases = (config.testCases || []).filter((_, i) => i !== index);
         const newMarks = newTestCases.reduce((acc, tc) => acc + (tc.points || 0), 0);
 
+        const newConfig = { ...config, testCases: newTestCases };
+        setConfig(newConfig);
         onChange({
-            codingConfig: { ...config, testCases: newTestCases },
+            codingConfig: newConfig,
             marks: newMarks
         });
         if (expandedTestCase === index) setExpandedTestCase(null);
     };
 
     const updateTestCase = (index: number, updates: any) => {
-        const newTestCases = config.testCases.map((tc, i) => i === index ? { ...tc, ...updates } : tc);
-        const newMarks = newTestCases.reduce((acc, tc) => acc + (tc.points || 0), 0);
+        const newTestCases = (config.testCases || []).map((tc: any, i: number) => i === index ? { ...tc, ...updates } : tc);
+        const newMarks = newTestCases.reduce((acc: any, tc: any) => acc + (tc.points || 0), 0);
 
+        const newConfig = { ...config, testCases: newTestCases };
+        setConfig(newConfig);
         onChange({
-            codingConfig: { ...config, testCases: newTestCases },
+            codingConfig: newConfig,
             marks: newMarks
         });
     };
 
-    const currentTemplate = config.templates[activeLang] || { head: '', body: '', tail: '', solution: '' };
+    const currentTemplate = config.templates?.[activeLang] || { head: '', body: '', tail: '', solution: '' };
 
     return (
         <div className="space-y-8">
@@ -197,7 +242,7 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
                         <h4 className="text-xs font-black uppercase tracking-widest text-slate-800 flex items-center gap-2">
                             <FlaskConical size={16} className="text-[var(--brand)]" />
                             Test Cases
-                            <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full text-[10px]">{config.testCases.length}</span>
+                            <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full text-[10px]">{config.testCases?.length || 0}</span>
                         </h4>
                         <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Total Question Points: <span className="text-[var(--brand)]">{question.marks || 0}</span></p>
                     </div>
@@ -211,7 +256,7 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
                 </div>
 
                 <div className="space-y-3">
-                    {config.testCases.map((tc, index) => {
+                    {(config.testCases || []).map((tc: any, index: number) => {
                         const isExpanded = expandedTestCase === index;
                         return (
                             <div key={index} className={`bg-white border transition-all duration-300 rounded-[24px] overflow-hidden ${isExpanded ? 'border-[var(--brand-light)] shadow-xl shadow-[var(--brand)]/10 ring-1 ring-[var(--brand-light)]/20' : 'border-slate-100 hover:border-slate-200'}`}>
@@ -240,29 +285,33 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black uppercase tracking-wide text-slate-400">Input (stdin)</label>
-                                                <CodeMirrorEditor
+                                                <textarea
                                                     value={tc.input}
-                                                    onChange={(val) => updateTestCase(index, { input: val })}
-                                                    height="120px"
-                                                    language="javascript" // Generic text/input
+                                                    onChange={(e) => updateTestCase(index, { input: e.target.value })}
                                                     placeholder="Enter input data..."
+                                                    className="w-full h-[120px] bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-mono text-slate-700 outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/10 transition-all resize-none"
                                                 />
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black uppercase tracking-wide text-slate-400 text-[var(--brand)]">Expected Output (stdout)</label>
-                                                <CodeMirrorEditor
+                                                <textarea
                                                     value={tc.output}
-                                                    onChange={(val) => updateTestCase(index, { output: val })}
-                                                    height="120px"
-                                                    language="javascript"
+                                                    onChange={(e) => updateTestCase(index, { output: e.target.value })}
                                                     placeholder="Enter expected output..."
+                                                    className="w-full h-[120px] bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-mono text-slate-700 outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/10 transition-all resize-none"
                                                 />
                                             </div>
                                         </div>
 
                                         <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                                             <div className="flex items-center gap-6">
-                                                <label className="flex items-center gap-3 cursor-pointer group/toggle">
+                                                <label
+                                                    className="flex items-center gap-3 cursor-pointer group/toggle"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation(); // Prevent closing accordion
+                                                        updateTestCase(index, { isPublic: !tc.isPublic });
+                                                    }}
+                                                >
                                                     <div className={`w-10 h-5 rounded-full relative transition-colors ${tc.isPublic ? 'bg-[var(--brand)]' : 'bg-slate-200'}`}>
                                                         <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${tc.isPublic ? 'translate-x-5' : ''}`}></div>
                                                     </div>
@@ -296,7 +345,7 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
                         );
                     })}
 
-                    {config.testCases.length === 0 && (
+                    {(!config.testCases || config.testCases.length === 0) && (
                         <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-[24px]">
                             <Layout size={32} className="text-slate-200 mx-auto mb-3" />
                             <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">No test cases defined</p>

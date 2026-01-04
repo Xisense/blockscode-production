@@ -104,7 +104,17 @@ export default function DashboardPage() {
               <div className="relative z-10">
                 <p className="text-xs font-black uppercase tracking-[0.2em] mb-4 text-orange-100/80">Daily Streak</p>
                 <div className="text-7xl font-black mb-4 group-hover:scale-110 transition-transform">{stats?.streak || 0}</div>
-                <p className="text-sm font-bold opacity-80">Keep it up! You're in your longest learning streak yet.</p>
+                <p className="text-sm font-bold opacity-80">
+                  {(() => {
+                    const s = stats?.streak || 0;
+                    if (s === 0) return "Start your learning journey today!";
+                    if (s < 5) return "Great start! Keep the momentum going.";
+                    if (s < 10) return "You're on fire! Consistency is key.";
+                    if (s < 20) return "Unstoppable! You're building a solid habit.";
+                    if (s < 50) return "Incredible dedication! You're a learning machine.";
+                    return "Legendary streak! You're mastering the art of consistency.";
+                  })()}
+                </p>
               </div>
               <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/10 rounded-full"></div>
             </div>
@@ -118,8 +128,12 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-3">
-                <QuickLink icon="📊" label="My Results" sub="Performance history" />
-                <QuickLink icon="🔖" label="Bookmarks" sub="Saved content" />
+                <Link href="/dashboard/student/test" className="block">
+                  <QuickLink icon="📊" label="My Results" sub="Performance history" />
+                </Link>
+                <Link href="/dashboard/student/bookmarks" className="block">
+                  <QuickLink icon="🔖" label="Bookmarks" sub="Saved content" />
+                </Link>
               </div>
             </div>
           </aside>

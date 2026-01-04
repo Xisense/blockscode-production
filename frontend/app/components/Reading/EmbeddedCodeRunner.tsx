@@ -4,25 +4,54 @@ import { useEditor } from "../Editor/hooks/useEditor";
 import { LanguageConfig } from "../Editor/types";
 import ExecuteButton from "../Common/ExecuteButton";
 
+import { CodeExecutionService } from "@/services/api/CodeExecutionService";
+
 interface EmbeddedCodeRunnerProps {
     language: LanguageConfig;
     initialCode?: string;
+    onRunSuccess?: () => void;
 }
 
-export default function EmbeddedCodeRunner({ language, initialCode }: EmbeddedCodeRunnerProps) {
+export default function EmbeddedCodeRunner({ language, initialCode, onRunSuccess }: EmbeddedCodeRunnerProps) {
+    const [code, setCode] = useState(initialCode || language.initialBody || "");
     const [output, setOutput] = useState<string | null>(null);
     const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+    const [isRunning, setIsRunning] = useState(false);
 
     const { editorRef } = useEditor({
         language: {
             ...language,
             initialBody: initialCode || language.initialBody
+        },
+        actions: {
+            onChange: (newCode) => setCode(newCode)
         }
     });
 
-    const handleRun = () => {
+    const handleRun = async () => {
+        if (isRunning) return;
+        setIsRunning(true);
         setIsTerminalOpen(true);
-        setOutput("Compiling code...\nExecution result: 40\nProcess finished.");
+
+        try {
+            // Provide immediate feedback
+            setOutput(null); // Clear previous output or show loading state implicitly via UI
+
+            const result = await CodeExecutionService.run(language.id, code, "");
+
+            // Show ONLY the output as requested
+            const finalOutput = result.output || (result.stderr ? `Error: ${result.stderr}` : "No output returned.");
+            setOutput(finalOutput);
+
+            if (!result.stderr && onRunSuccess) {
+                onRunSuccess();
+            }
+        } catch (error) {
+            console.error("Embedded Execution Error:", error);
+            setOutput(`Error: Failed to execute code.\n${String(error)}`);
+        } finally {
+            setIsRunning(false);
+        }
     };
 
     return (
@@ -56,8 +85,9 @@ export default function EmbeddedCodeRunner({ language, initialCode }: EmbeddedCo
                     </button>
                     <ExecuteButton
                         onClick={handleRun}
-                        label="run"
-                        className="scale-90"
+                        label={isRunning ? "Running..." : "run"}
+                        disabled={isRunning}
+                        className={`scale-90 ${isRunning ? 'opacity-70 cursor-not-allowed' : ''}`}
                     />
                 </div>
                 {output && (

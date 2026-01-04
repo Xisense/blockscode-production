@@ -13,6 +13,7 @@ import { useEffect } from "react";
 
 interface AdminExamsViewProps {
     basePath?: string;
+    organizationId?: string;
     orgPermissions?: {
         canCreateExams?: boolean;
         canCreateCourses?: boolean;
@@ -22,7 +23,7 @@ interface AdminExamsViewProps {
     };
 }
 
-export default function AdminExamsView({ basePath = '/dashboard/admin' }: AdminExamsViewProps) {
+export default function AdminExamsView({ basePath = '/dashboard/admin', organizationId }: AdminExamsViewProps) {
     const [activeTab, setActiveTab] = useState<'exams' | 'courses'>('exams');
     const [searchQuery, setSearchQuery] = useState("");
     const [viewingCourse, setViewingCourse] = useState<any | null>(null);
@@ -40,8 +41,8 @@ export default function AdminExamsView({ basePath = '/dashboard/admin' }: AdminE
         async function load() {
             try {
                 const [ex, cr] = await Promise.all([
-                    AdminService.getExams(),
-                    AdminService.getCourses()
+                    AdminService.getExams(organizationId),
+                    AdminService.getCourses(organizationId)
                 ]);
                 setExams(ex);
                 setCourses(cr);
@@ -52,7 +53,7 @@ export default function AdminExamsView({ basePath = '/dashboard/admin' }: AdminE
             }
         }
         load();
-    }, []);
+    }, [organizationId]);
 
     const orgPermissions = userData?.features || { canCreateExams: true, canCreateCourses: true, allowCourseTests: true };
 

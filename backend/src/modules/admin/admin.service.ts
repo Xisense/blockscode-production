@@ -1,19 +1,36 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { MailService } from '../../services/mail.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AdminService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private mailService: MailService
+    ) { }
 
-    private ensureOrgAccess(user: any) {
-        if (user.role === 'SUPER_ADMIN') return; // Super admin sees all (or should they? Maybe context specific)
+    private getEffectiveOrgId(user: any, targetOrgId?: string): string {
+        if (user.role === 'SUPER_ADMIN') {
+            if (targetOrgId) return targetOrgId;
+            if (user.orgId) return user.orgId;
+            // If Super Admin and no targetOrgId, we might want to return null or throw depending on context.
+            // But for these operations, we need an orgId.
+            throw new BadRequestException('Organization ID is required for Super Admin operations');
+        }
+
         if (!user.orgId) throw new ForbiddenException('Admin has no organization assigned');
+
+        // Regular admin cannot impersonate
+        if (targetOrgId && targetOrgId !== user.orgId) {
+            throw new ForbiddenException('Cannot access another organization');
+        }
+
+        return user.orgId;
     }
 
-    async getGlobalStats(user?: any) {
-        this.ensureOrgAccess(user);
-        const orgId = user.orgId;
+    async getGlobalStats(user?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(user, targetOrgId);
 
         const totalUsers = await this.prisma.user.count({ where: { orgId } });
         const totalExams = await this.prisma.exam.count({ where: { orgId } });
@@ -34,10 +51,10 @@ export class AdminService {
         };
     }
 
-    async getUsers(user?: any) {
-        this.ensureOrgAccess(user);
+    async getUsers(user?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(user, targetOrgId);
         return this.prisma.user.findMany({
-            where: { orgId: user.orgId },
+            where: { orgId },
             select: {
                 id: true,
                 email: true,
@@ -51,20 +68,19 @@ export class AdminService {
         });
     }
 
-    async getSystemLogs(user?: any) {
-        this.ensureOrgAccess(user);
+    async getSystemLogs(user?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(user, targetOrgId);
         // Only show logs for users in this org
         return this.prisma.auditLog.findMany({
-            where: { user: { orgId: user.orgId } },
+            where: { user: { orgId } },
             take: 20,
             orderBy: { timestamp: 'desc' },
             include: { user: { select: { name: true, email: true, role: true } } }
         });
     }
 
-    async getAnalytics(user?: any) {
-        this.ensureOrgAccess(user);
-        const orgId = user.orgId;
+    async getAnalytics(user?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(user, targetOrgId);
 
         // Fetch session counts for the last 7 days matched to Org's exams
         const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -118,10 +134,10 @@ export class AdminService {
         };
     }
 
-    async getExams(user?: any) {
-        this.ensureOrgAccess(user);
+    async getExams(user?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(user, targetOrgId);
         return this.prisma.exam.findMany({
-            where: { orgId: user.orgId }, // ISOLATION
+            where: { orgId }, // ISOLATION
             include: {
                 _count: {
                     select: { submissions: true }
@@ -132,10 +148,10 @@ export class AdminService {
         });
     }
 
-    async getCourses(user?: any) {
-        this.ensureOrgAccess(user);
+    async getCourses(user?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(user, targetOrgId);
         return this.prisma.course.findMany({
-            where: { orgId: user.orgId }, // ISOLATION
+            where: { orgId }, // ISOLATION
             include: {
                 _count: {
                     select: { modules: true, students: true }
@@ -163,10 +179,8 @@ export class AdminService {
         });
     }
 
-    async createUser(data: any, currentUser?: any) {
-        this.ensureOrgAccess(currentUser);
-        // Force orgId from creator
-        const orgId = currentUser.orgId;
+    async createUser(data: any, currentUser?: any, targetOrgId?: string) {
+        const orgId = this.getEffectiveOrgId(currentUser, targetOrgId);
 
         // CHECK LIMITS
         const org = await this.prisma.organization.findUnique({
@@ -204,6 +218,12 @@ export class AdminService {
             }
         });
 
+        // Send welcome email
+        const emailResult = await this.mailService.sendWelcomeEmail(
+            { email: user.email, name: user.name || 'User', password: generatedPassword },
+            { name: org.name, primaryColor: org.primaryColor || undefined }
+        );
+
         return {
             user: {
                 id: user.id,
@@ -213,21 +233,44 @@ export class AdminService {
                 isActive: user.isActive,
                 createdAt: user.createdAt
             },
-            password: generatedPassword // Return plain password for one-time display
+            password: generatedPassword, // Return plain password for one-time display
+            emailSent: !!emailResult
         };
     }
 
-    async createUsersBulk(users: any[], currentUser?: any) {
+    async createUsersBulk(users: any[], currentUser?: any, targetOrgId?: string) {
         const results = [];
+        let createdCount = 0;
+        let failedCount = 0;
+        let emailsSentCount = 0;
+        let emailsFailedCount = 0;
+
         for (const userData of users) {
             try {
-                const result = await this.createUser(userData, currentUser);
+                const result = await this.createUser(userData, currentUser, targetOrgId);
+                createdCount++;
+                if (result.emailSent) {
+                    emailsSentCount++;
+                } else {
+                    emailsFailedCount++;
+                }
                 results.push({ ...result, success: true });
             } catch (err: any) {
+                failedCount++;
                 results.push({ email: userData.email, success: false, error: err.message });
             }
         }
-        return results;
+
+        return {
+            summary: {
+                totalProcessed: users.length,
+                created: createdCount,
+                failed: failedCount,
+                emailsSent: emailsSentCount,
+                emailsFailed: emailsFailedCount
+            },
+            details: results
+        };
     }
 
     async deleteUser(id: string) {

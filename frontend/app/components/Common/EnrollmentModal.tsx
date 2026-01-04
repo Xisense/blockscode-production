@@ -3,6 +3,7 @@ import React, { useState, useRef } from 'react';
 import { X, UserPlus, Upload, FileText, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { TeacherService } from '@/services/api/TeacherService';
 import { useToast } from './Toast';
+import BulkImportReportModal from './BulkImportReportModal';
 
 interface EnrollmentModalProps {
     isOpen: boolean;
@@ -19,9 +20,30 @@ export default function EnrollmentModal({ isOpen, onClose, courseTitle, courseId
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    const [importReport, setImportReport] = useState<any>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     if (!isOpen) return null;
+
+    if (importReport) {
+        return (
+            <BulkImportReportModal
+                isOpen={!!importReport}
+                onClose={() => {
+                    setImportReport(null);
+                    onClose();
+                }}
+                report={{
+                    summary: {
+                        totalProcessed: importReport.summary.total,
+                        created: importReport.summary.success,
+                        failed: importReport.summary.failed,
+                    },
+                    details: importReport.details
+                }}
+            />
+        );
+    }
 
     const handleSingleEnroll = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -82,7 +104,17 @@ export default function EnrollmentModal({ isOpen, onClose, courseTitle, courseId
 
             try {
                 const result = await TeacherService.enrollByEmails(courseId, emails);
-                if (result.success) {
+                
+                if (result.summary) {
+                    setImportReport(result);
+                    if (result.summary.success > 0) {
+                        const successfulEmails = result.details
+                            .filter((d: any) => d.status === 'success')
+                            .map((d: any) => ({ email: d.email }));
+                        onEnroll(successfulEmails);
+                    }
+                    toastSuccess(`Processed ${result.summary.total} students`);
+                } else if (result.success) {
                     setSuccess(true);
                     onEnroll(emails.map(e => ({ email: e })));
                     toastSuccess(`Successfully enrolled ${result.count} students`);

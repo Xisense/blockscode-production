@@ -317,15 +317,7 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                                         <td className="px-4 py-5 text-center text-xs font-black text-slate-700">{r.attempted}</td>
                                         <td className="px-4 py-5 text-center">
                                             <div className="flex items-center justify-center gap-1.5">
-                                                <input
-                                                    type="text"
-                                                    className={`w-10 py-1 bg-slate-50 border border-slate-100 rounded text-center text-[11px] font-black outline-none shadow-inner`}
-                                                    style={{ color: brandColor, borderColor: '#e2e8f0' }}
-                                                    onFocus={(e) => e.target.style.borderColor = brandColor}
-                                                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                                    value={r.score}
-                                                    onChange={(e) => updateScore(r.sessionId, e.target.value)}
-                                                />
+                                                <span className="text-[11px] font-black" style={{ color: brandColor }}>{r.score}</span>
                                                 <span className="text-[10px] font-bold text-slate-300">/ {r.totalPossible}</span>
                                             </div>
                                         </td>
@@ -335,7 +327,12 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                                             </span>
                                         </td>
                                         <td className="px-8 py-5 text-right">
-                                            <Link href={`/dashboard/teacher/exams/${examId}/submission/${r.sessionId}/preview`}>
+                                            <Link href={basePath 
+                                                ? `${basePath}/exams/${examId}/submission/${r.sessionId}/preview`
+                                                : (userRole === 'admin' 
+                                                    ? `/dashboard/admin/exams/${examId}/submission/${r.sessionId}/preview`
+                                                    : `/dashboard/teacher/exams/${examId}/submission/${r.sessionId}/preview`)
+                                            }>
                                                 <button className="text-[9px] font-black uppercase text-slate-400 hover:text-[var(--brand)] transition-colors">
                                                     Preview →
                                                 </button>

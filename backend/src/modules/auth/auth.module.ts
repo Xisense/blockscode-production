@@ -8,23 +8,23 @@ import { JwtStrategy } from './jwt.strategy';
 import { PassportModule } from '@nestjs/passport';
 import { OrgFeaturesGuard } from './guards/org-features.guard';
 import { OrgStatusGuard } from './guards/org-status.guard';
+import { MailService } from '../../services/mail.service';
 
 @Module({
   imports: [
     PrismaModule,
     PassportModule,
-    ConfigModule.forRoot(), // Ensure env vars are loaded
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'super-secret-key-change-in-production',
+        secret: configService.get<string>('JWT_SECRET'),
         signOptions: { expiresIn: '60m' },
       }),
       inject: [ConfigService],
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, OrgFeaturesGuard, OrgStatusGuard],
+  providers: [AuthService, JwtStrategy, OrgFeaturesGuard, OrgStatusGuard, MailService],
   exports: [AuthService, OrgFeaturesGuard, OrgStatusGuard],
 })
 export class AuthModule { }

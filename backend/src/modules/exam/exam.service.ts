@@ -178,6 +178,7 @@ export class ExamService {
 
     private normalizeType(type: string): string {
         const t = type.toLowerCase();
+        if (t.includes('multi') || t.includes('select')) return 'MultiSelect';
         if (t.includes('mcq') || t.includes('quiz') || t.includes('choice')) return 'MCQ';
         if (t.includes('code') || t.includes('coding') || t.includes('program')) return 'Coding';
         if (t.includes('web') || t.includes('html')) return 'Web';
@@ -554,9 +555,10 @@ export class ExamService {
                     }
                 } else if (qType === 'CODING') {
                     // Logic for coding score based on test cases passed
-                    if (studentAnswer.testResults && Array.isArray(studentAnswer.testResults)) {
-                        const passed = studentAnswer.testResults.filter((r: any) => r.passed).length;
-                        const total = studentAnswer.testResults.length;
+                    const testResults = studentAnswer.testResults || studentAnswer.results;
+                    if (testResults && Array.isArray(testResults)) {
+                        const passed = testResults.filter((r: any) => r.passed).length;
+                        const total = testResults.length;
                         if (total > 0) {
                             score += (passed / total) * (Number(q.points) || 10);
                         }

@@ -11,9 +11,10 @@ const getHeaders = () => {
 };
 
 export const AdminService = {
-    async getStats() {
+    async getStats(orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/stats`, {
+            const url = orgId ? `${BASE_URL}/admin/stats?orgId=${orgId}` : `${BASE_URL}/admin/stats`;
+            const res = await fetch(url, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch admin stats');
@@ -24,9 +25,10 @@ export const AdminService = {
         }
     },
 
-    async getUsers() {
+    async getUsers(orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/users`, {
+            const url = orgId ? `${BASE_URL}/admin/users?orgId=${orgId}` : `${BASE_URL}/admin/users`;
+            const res = await fetch(url, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch users');
@@ -37,9 +39,10 @@ export const AdminService = {
         }
     },
 
-    async createUser(userData: any) {
+    async createUser(userData: any, orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/users`, {
+            const url = orgId ? `${BASE_URL}/admin/users?orgId=${orgId}` : `${BASE_URL}/admin/users`;
+            const res = await fetch(url, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify(userData)
@@ -55,9 +58,10 @@ export const AdminService = {
         }
     },
 
-    async createUsersBulk(users: any[]) {
+    async createUsersBulk(users: any[], orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/users/bulk`, {
+            const url = orgId ? `${BASE_URL}/admin/users/bulk?orgId=${orgId}` : `${BASE_URL}/admin/users/bulk`;
+            const res = await fetch(url, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({ users })
@@ -73,9 +77,10 @@ export const AdminService = {
         }
     },
 
-    async getSystemLogs() {
+    async getSystemLogs(orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/logs`, {
+            const url = orgId ? `${BASE_URL}/admin/logs?orgId=${orgId}` : `${BASE_URL}/admin/logs`;
+            const res = await fetch(url, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch logs');
@@ -86,9 +91,10 @@ export const AdminService = {
         }
     },
 
-    async getAnalytics() {
+    async getAnalytics(orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/analytics`, {
+            const url = orgId ? `${BASE_URL}/admin/analytics?orgId=${orgId}` : `${BASE_URL}/admin/analytics`;
+            const res = await fetch(url, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch analytics');
@@ -99,9 +105,10 @@ export const AdminService = {
         }
     },
 
-    async getExams() {
+    async getExams(orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/exams`, {
+            const url = orgId ? `${BASE_URL}/admin/exams?orgId=${orgId}` : `${BASE_URL}/admin/exams`;
+            const res = await fetch(url, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch admin exams');
@@ -112,9 +119,10 @@ export const AdminService = {
         }
     },
 
-    async getCourses() {
+    async getCourses(orgId?: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/courses`, {
+            const url = orgId ? `${BASE_URL}/admin/courses?orgId=${orgId}` : `${BASE_URL}/admin/courses`;
+            const res = await fetch(url, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch admin courses');

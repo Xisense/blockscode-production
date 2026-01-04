@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Navbar, { ExamConfig } from "../../components/Navbar";
 import ExamSidebar from "../../components/ExamSidebar";
 import UnitRenderer, { UnitQuestion } from "../../components/UnitRenderer";
@@ -17,8 +17,46 @@ import { useProctoringAI } from "@/hooks/useProctoringAI";
 // PeerJS will be dynamically imported or we can try static if build allows. 
 // Using dynamic import in useEffect is safer for Next.js SSR.
 
+// --- Shuffle Helpers ---
+const stringToSeed = (str: string) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+};
+
+const seededRandom = (seed: number) => {
+    const m = 0x80000000;
+    const a = 1103515245;
+    const c = 12345;
+    let state = seed ? seed : Math.floor(Math.random() * (m - 1));
+    return function() {
+        state = (a * state + c) % m;
+        return state / (m - 1);
+    };
+};
+
+const shuffleArray = (array: any[], seed: number) => {
+    const rng = seededRandom(seed);
+    let currentIndex = array.length, randomIndex;
+    const newArray = [...array];
+
+    while (currentIndex != 0) {
+        randomIndex = Math.floor(rng() * currentIndex);
+        currentIndex--;
+        [newArray[currentIndex], newArray[randomIndex]] = [
+            newArray[randomIndex], newArray[currentIndex]];
+    }
+    return newArray;
+};
+// -----------------------
+
 export default function PublicExamPage() {
     const params = useParams();
+    const router = useRouter();
     const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
 
     const [sections, setSections] = useState<any[]>([]);
@@ -41,6 +79,7 @@ export default function PublicExamPage() {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [tabSwitchLimit, setTabSwitchLimit] = useState<number | null>(null);
     const [canShowFullscreenWarning, setCanShowFullscreenWarning] = useState(false);
+    const [isAiProctoringEnabled, setIsAiProctoringEnabled] = useState(false);
 
     const [user, setUser] = useState<any>(null);
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -95,7 +134,7 @@ export default function PublicExamPage() {
 
     // --- AI PROCTORING & PEERJS ---
     const { videoRef, canvasRef, isModelLoaded } = useProctoringAI({
-        active: !isLoading && !isSuccessMode && !isFeedbackMode, // Only active when taking exam
+        active: !isLoading && !isSuccessMode && !isFeedbackMode && isAiProctoringEnabled, // Only active when taking exam AND enabled
         onViolation: (type, msg, img) => {
             console.log(`[Proctoring] Violation: ${type} - ${msg}. SessionID state:`, sessionId);
             socketLogViolation(type, msg, img); // Pass image as details
@@ -106,7 +145,7 @@ export default function PublicExamPage() {
 
     useEffect(() => {
         // Initialize PeerJS only on client
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || !isAiProctoringEnabled) return;
 
         let peer: any;
         const initPeer = async () => {
@@ -133,11 +172,11 @@ export default function PublicExamPage() {
         return () => {
             if (peer) peer.destroy();
         };
-    }, []);
+    }, [isAiProctoringEnabled]);
 
     // Listen for Streaming Requests
     useEffect(() => {
-        if (!socket) return;
+        if (!socket || !isAiProctoringEnabled) return;
 
         const handleRequestStream = async (data: { teacherSocketId: string }) => {
             console.log("[Proctoring] Received Stream Request from", data.teacherSocketId);
@@ -198,7 +237,7 @@ export default function PublicExamPage() {
         return () => {
             socket.off('cmd_request_stream', handleRequestStream);
         };
-    }, [socket, info, warning]);
+    }, [socket, info, warning, isAiProctoringEnabled]);
 
     useEffect(() => {
         if (!slug) return;
@@ -211,7 +250,7 @@ export default function PublicExamPage() {
                     const isAuthorized = localStorage.getItem(`exam_${slug}_auth`);
                     if (!isAuthorized) {
                         console.log(`[ExamPage] Not authorized for slug: ${slug}, redirecting to login...`);
-                        window.location.href = `/exam/login?slug=${slug}`;
+                        router.replace(`/exam/login?slug=${slug}`);
                         return;
                     }
                 }
@@ -220,7 +259,7 @@ export default function PublicExamPage() {
                 const storedUserRaw = localStorage.getItem('user');
                 if (!storedUserRaw) {
                     console.log('No user found, redirecting to login');
-                    window.location.href = `/exam/login?slug=${slug}`;
+                    router.replace(`/exam/login?slug=${slug}`);
                     return;
                 }
                 const currentUserMeta = JSON.parse(storedUserRaw);
@@ -233,7 +272,7 @@ export default function PublicExamPage() {
                 const publicStatus = await ExamService.getExamPublicStatus(slug as string);
                 const startTime = new Date(publicStatus.startTime).getTime();
                 if (Date.now() < startTime) {
-                    window.location.href = `/exam/waiting?slug=${slug}`;
+                    router.replace(`/exam/waiting?slug=${slug}`);
                     return; // Prevent setIsLoading(false)
                 }
 
@@ -254,6 +293,7 @@ export default function PublicExamPage() {
                 const data = await ExamService.getExamBySlug(slug as string);
                 setExamTitle(data.title || "Examination");
                 setTabSwitchLimit(data.tabSwitchLimit || null);
+                setIsAiProctoringEnabled(data.aiProctoring || false);
 
                 // 2. Start/Resume Session (Gatekeeper)
                 const session = await ExamService.startExam(
@@ -263,6 +303,10 @@ export default function PublicExamPage() {
                     tabId,
                     studentMetadata
                 );
+
+                // Initialize user answers and sections if session has them
+                let restoredAllAnswers: Record<string, any> = {};
+                let sectionsToProcess = data.sections || []; // Define it here so it's available in scope
 
                 if (session && session.id) {
                     setSessionId(session.id);
@@ -292,7 +336,27 @@ export default function PublicExamPage() {
                     }
 
                     // POPULATE DATA ONLY AFTER SUCCESSFUL SESSION START
-                    if (data.sections) setSections(data.sections);
+                    if (data.sections) {
+                        sectionsToProcess = data.sections; // Assign to the outer variable
+                        
+                        // Shuffle questions within each section using session ID as seed
+                        const seed = stringToSeed(session.id);
+                        sectionsToProcess = sectionsToProcess.map((section: any) => {
+                            if (section.questions && Array.isArray(section.questions)) {
+                                const shuffledQuestions = shuffleArray(section.questions, seed + stringToSeed(section.id));
+                                // Re-assign sequential numbers after shuffle
+                                const renumberedQuestions = shuffledQuestions.map((q: any, idx: number) => ({
+                                    ...q,
+                                    number: idx + 1
+                                }));
+                                return {
+                                    ...section,
+                                    questions: renumberedQuestions
+                                };
+                            }
+                            return section;
+                        });
+                    }
                     if (data.questions) setQuestionsMap(data.questions);
 
                     // Adjust timer based on ACTUAL session start time
@@ -312,9 +376,6 @@ export default function PublicExamPage() {
                         setWindowFocus(prev => ({ ...prev, in: session.tabSwitchInCount }));
                     }
                 }
-
-                // Initialize user answers and sections if session has them
-                let restoredAllAnswers: Record<string, any> = {};
 
                 if (session.answers) {
                     try {
@@ -362,11 +423,11 @@ export default function PublicExamPage() {
                 };
 
                 // Update sections with persistent status
-                if (data.sections && data.sections.length > 0) {
+                if (sectionsToProcess.length > 0) {
                     let firstIncompleteSectionId: string | null = null;
                     let firstIncompleteQuestionId: string | null = null;
 
-                    const updatedSections = data.sections.map((s: any, idx: number) => {
+                    const updatedSections = sectionsToProcess.map((s: any, idx: number) => {
                         const isSubmitted = restoredAllAnswers[`_section_${s.id}_submitted`] === true;
 
                         // Determine status: submitted, active, or locked
@@ -1075,6 +1136,7 @@ export default function PublicExamPage() {
                                         onNext={handleNext}
                                         onSubmit={handleSubmitNext}
                                         currentAnswer={userAnswers[currentQuestionId as string]}
+                                        examId={examId}
                                     />
                                 </div>
                             </div>
@@ -1085,7 +1147,7 @@ export default function PublicExamPage() {
 
 
             {/* AI Proctoring Webcam (Clean Preview) */}
-            {!isFeedbackMode && !isSuccessMode && (
+            {!isFeedbackMode && !isSuccessMode && isAiProctoringEnabled && (
                 <div className="fixed bottom-24 right-6 z-[90] pointer-events-none">
                     <div className="w-40 h-28 bg-black rounded-2xl overflow-hidden relative">
                         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />

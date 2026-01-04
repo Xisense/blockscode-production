@@ -5,11 +5,16 @@ import { LanguageConfig } from "../Editor/types";
 
 interface PlaygroundEditorProps {
     language: LanguageConfig;
+    code: string;
+    onChange: (code: string) => void;
 }
 
-export default function PlaygroundEditor({ language }: PlaygroundEditorProps) {
+export default function PlaygroundEditor({ language, code, onChange }: PlaygroundEditorProps) {
     const { editorRef } = useEditor({
-        language
+        language: { ...language, initialBody: code },
+        actions: {
+            onChange: (newCode) => onChange(newCode)
+        }
     });
 
     return (

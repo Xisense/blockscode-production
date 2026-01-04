@@ -77,6 +77,30 @@ export const StudentService = {
             throw error;
         }
     },
+    async getExamResult(sessionId: string) {
+        try {
+            const res = await fetch(`${BASE_URL}/student/exam/${sessionId}/result`, {
+                headers: getHeaders()
+            });
+            if (!res.ok) throw new Error('Failed to fetch exam result');
+            return await res.json();
+        } catch (error) {
+            console.error('[StudentService] Error', error);
+            throw error;
+        }
+    },
+    async getUnitAttempts() {
+        try {
+            const res = await fetch(`${BASE_URL}/student/unit-attempts`, {
+                headers: getHeaders()
+            });
+            if (!res.ok) throw new Error('Failed to fetch unit attempts');
+            return await res.json();
+        } catch (error) {
+            console.error('[StudentService] Error', error);
+            throw error;
+        }
+    },
 
     async getAnalytics() {
         try {
@@ -186,6 +210,19 @@ export const StudentService = {
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to submit unit');
+            return await res.json();
+        } catch (error) {
+            console.error('[StudentService] Error', error);
+            throw error;
+        }
+    },
+
+    async getCourseProgress(slug: string) {
+        try {
+            const res = await fetch(`${BASE_URL}/student/course/${slug}/progress`, {
+                headers: getHeaders()
+            });
+            if (!res.ok) throw new Error('Failed to fetch course progress');
             return await res.json();
         } catch (error) {
             console.error('[StudentService] Error', error);

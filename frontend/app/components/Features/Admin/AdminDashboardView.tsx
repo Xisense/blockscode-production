@@ -42,6 +42,7 @@ function QuickActionCard({ title, desc, count, icon, color, link }: QuickActionC
 
 interface AdminDashboardViewProps {
     basePath?: string;
+    organizationId?: string;
 }
 
 import { AdminService } from "@/services/api/AdminService";
@@ -49,7 +50,7 @@ import { useEffect, useState } from "react";
 
 // ... (keep interface)
 
-export default function AdminDashboardView({ basePath = '/dashboard/admin' }: AdminDashboardViewProps) {
+export default function AdminDashboardView({ basePath = '/dashboard/admin', organizationId }: AdminDashboardViewProps) {
     const [statsData, setStatsData] = useState<any>(null);
     const [analyticsData, setAnalyticsData] = useState<any>(null);
     const [liveStatus, setLiveStatus] = useState<any[]>([]);
@@ -59,9 +60,9 @@ export default function AdminDashboardView({ basePath = '/dashboard/admin' }: Ad
         async function load() {
             try {
                 const [stats, analytics, logs] = await Promise.all([
-                    AdminService.getStats(),
-                    AdminService.getAnalytics(),
-                    AdminService.getSystemLogs()
+                    AdminService.getStats(organizationId),
+                    AdminService.getAnalytics(organizationId),
+                    AdminService.getSystemLogs(organizationId)
                 ]);
                 setStatsData(stats);
                 setAnalyticsData(analytics);
@@ -72,7 +73,7 @@ export default function AdminDashboardView({ basePath = '/dashboard/admin' }: Ad
             finally { setLoading(false); }
         }
         load();
-    }, []);
+    }, [organizationId]);
 
     const stats = [
         { label: "Total Users", value: statsData?.totalUsers?.toString() || "0", change: "Total", icon: <Users size={20} />, color: "bg-[var(--brand-light)] text-[var(--brand)]" },

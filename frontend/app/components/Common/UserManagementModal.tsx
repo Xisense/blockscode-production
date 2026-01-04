@@ -3,6 +3,7 @@ import React, { useState, useRef } from 'react';
 import { X, UserPlus, Upload, FileText, Download, CheckCircle2, AlertCircle, Loader2, Shield, Copy, Check } from 'lucide-react';
 import { AdminService } from '@/services/api/AdminService';
 import { useToast } from './Toast';
+import BulkImportReportModal from './BulkImportReportModal';
 
 interface UserManagementModalProps {
     isOpen: boolean;
@@ -25,10 +26,12 @@ export default function UserManagementModal({ isOpen, onClose, orgName, onImport
     const [success, setSuccess] = useState(false);
     const [createdPassword, setCreatedPassword] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
+    const [importReport, setImportReport] = useState<any>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { success: toastSuccess, error: toastError } = useToast();
 
     if (!isOpen) return null;
+
 
     const handleSingleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -79,18 +82,27 @@ export default function UserManagementModal({ isOpen, onClose, orgName, onImport
                 }
 
                 const results = await AdminService.createUsersBulk(usersToCreate);
-                const successfulUsers = results.filter((r: any) => r.success).map((r: any) => r.user);
-                const failedCount = results.filter((r: any) => !r.success).length;
-
-                if (successfulUsers.length > 0) {
-                    onImport(successfulUsers);
-                    toastSuccess(`Successfully imported ${successfulUsers.length} users.`);
-                    if (failedCount > 0) {
-                        toastError(`${failedCount} users failed to import (likely already exist).`);
+                
+                if (results.summary) {
+                    const successfulUsers = results.details.filter((r: any) => r.success).map((r: any) => r.user);
+                    if (successfulUsers.length > 0) {
+                        onImport(successfulUsers);
                     }
-                    onClose(); // Close immediately for bulk since toast is enough
+                    setImportReport(results);
                 } else {
-                    setError('All users in CSV failed to import. They may already exist.');
+                    const successfulUsers = results.filter((r: any) => r.success).map((r: any) => r.user);
+                    const failedCount = results.filter((r: any) => !r.success).length;
+
+                    if (successfulUsers.length > 0) {
+                        onImport(successfulUsers);
+                        toastSuccess(`Successfully imported ${successfulUsers.length} users.`);
+                        if (failedCount > 0) {
+                            toastError(`${failedCount} users failed to import (likely already exist).`);
+                        }
+                        onClose();
+                    } else {
+                        setError('All users in CSV failed to import. They may already exist.');
+                    }
                 }
             } catch (err: any) {
                 setError(err.message || "Failed to process bulk import");
@@ -115,37 +127,39 @@ export default function UserManagementModal({ isOpen, onClose, orgName, onImport
     };
 
     return (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={onClose} />
+        <>
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={onClose} />
 
-            <div className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-zoom-in flex flex-col max-h-[90vh]">
-                {/* Header */}
-                <div className="p-10 border-b border-slate-50 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-[var(--brand-light)] flex items-center justify-center text-[var(--brand)]">
-                            <UserPlus size={24} />
+                <div className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl overflow-hidden animate-zoom-in flex flex-col max-h-[90vh]">
+                    {/* Header */}
+                    <div className="p-10 border-b border-slate-50 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-[var(--brand-light)] flex items-center justify-center text-[var(--brand)]">
+                                <UserPlus size={24} />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-black text-slate-800 tracking-tight">Access Management</h2>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">{orgName}</p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-xl font-black text-slate-800 tracking-tight">Access Management</h2>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">{orgName}</p>
-                        </div>
+                        <button onClick={onClose} className="p-3 hover:bg-slate-50 rounded-2xl text-slate-400 transition-all hover:rotate-90">
+                            <X size={20} />
+                        </button>
                     </div>
-                    <button onClick={onClose} className="p-3 hover:bg-slate-50 rounded-2xl text-slate-400 transition-all hover:rotate-90">
-                        <X size={20} />
-                    </button>
-                </div>
 
-                <div className="flex-1 overflow-y-auto p-10 space-y-8 no-scrollbar">
-                    {/* Role Instructions */}
-                    <div className="bg-[var(--brand-light)] p-6 rounded-[24px] border border-[var(--brand)]/20 flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-[var(--brand)] shrink-0 shadow-sm border border-[var(--brand-light)]">
-                            <Shield size={20} />
+                    <div className="flex-1 overflow-y-auto p-10 space-y-8 no-scrollbar">
+                        {/* Role Instructions */}
+                        <div className="bg-[var(--brand-light)] p-6 rounded-[24px] border border-[var(--brand)]/20 flex items-start gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-[var(--brand)] shrink-0 shadow-sm border border-[var(--brand-light)]">
+                                <Shield size={20} />
+                            </div>
+                            <div>
+                                <p className="text-[11px] font-black text-[var(--brand-dark)] uppercase tracking-widest mb-1">Authorization Protocol</p>
+                                <p className="text-xs font-bold text-[var(--brand)] leading-relaxed">Adding users will automatically trigger welcome emails with temporary credentials. Admins have full system control.</p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-[11px] font-black text-[var(--brand-dark)] uppercase tracking-widest mb-1">Authorization Protocol</p>
-                            <p className="text-xs font-bold text-[var(--brand)] leading-relaxed">Adding users will automatically trigger welcome emails with temporary credentials. Admins have full system control.</p>
-                        </div>
-                    </div>
+
 
                     {/* Tabs */}
                     <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
@@ -291,8 +305,17 @@ export default function UserManagementModal({ isOpen, onClose, orgName, onImport
                     <p className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em]">Institutional Access Management • BlocksCode Admin</p>
                 </div>
             </div>
-
         </div>
+
+        <BulkImportReportModal 
+            isOpen={!!importReport} 
+            onClose={() => {
+                setImportReport(null);
+                onClose();
+            }} 
+            report={importReport} 
+        />
+    </>
     );
 }
 

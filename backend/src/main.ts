@@ -1,3 +1,4 @@
+import './tracer';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ValidationPipe } from '@nestjs/common';
@@ -16,6 +17,7 @@ async function bootstrap() {
 
     // Register plugin to allow Authorization header for CORS
     // @ts-ignore
+    // Force reload
     await app.register(require('./fastify-cors-auth-header.plugin').default);
 
     // Set global API prefix

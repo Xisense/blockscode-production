@@ -2,6 +2,8 @@ import { Controller, Get, Post, Body, Param, Req, UseGuards, Query, Unauthorized
 import { ExamService } from './exam.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../auth/user.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('exam')
 export class ExamController {
@@ -56,16 +58,20 @@ export class ExamController {
     }
 
     @Post()
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('TEACHER', 'ADMIN', 'SUPER_ADMIN')
     async createExam(@Body() body: any) {
         return this.examService.createExam(body);
     }
 
     @Get(':examId/monitoring')
+    @UseGuards(JwtAuthGuard)
     async getMonitoredStudents(@Param('examId') examId: string) {
         return this.examService.getMonitoredStudents(examId);
     }
 
     @Get(':examId/feedbacks')
+    @UseGuards(JwtAuthGuard)
     async getFeedbacks(@Param('examId') examId: string) {
         const feedbacks = await this.examService.getFeedbacks(examId);
         return feedbacks.map((f: any) => ({
@@ -80,12 +86,13 @@ export class ExamController {
     }
 
     @Post(':slug/feedback')
+    @UseGuards(JwtAuthGuard)
     async saveFeedback(
         @Param('slug') slug: string,
-        @Body() body: { userId: string; rating: number; comment: string },
-        @Req() req: any
+        @Body() body: { rating: number; comment: string },
+        @User() user: any
     ) {
-        const userId = req.user?.userId || body.userId;
+        const userId = user.id;
         const exam = await this.examService.getExamBySlug(slug);
         return this.examService.saveFeedback(userId, exam.id, body.rating, body.comment);
     }

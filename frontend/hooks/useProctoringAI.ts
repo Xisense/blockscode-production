@@ -48,6 +48,8 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
 
     // Initial Model Loading
     useEffect(() => {
+        if (!active) return; // Don't load models if not active
+
         let isMounted = true;
 
         async function loadModels() {
@@ -96,11 +98,12 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
 
         return () => {
             isMounted = false;
+            setIsModelLoaded(false);
             // Cleanup logic if needed (MediaPipe classes might have close methods)
             objectDetectorRef.current?.close();
             faceLandmarkerRef.current?.close();
         };
-    }, []);
+    }, [active]);
 
     // Camera Setup
     useEffect(() => {

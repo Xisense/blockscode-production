@@ -12,9 +12,10 @@ import { useToast } from "@/app/components/Common/Toast";
 
 interface AdminUsersViewProps {
     basePath?: string;
+    organizationId?: string;
 }
 
-export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
+export default function AdminUsersView({ basePath, organizationId }: AdminUsersViewProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState<any | null>(null);
@@ -30,13 +31,13 @@ export default function AdminUsersView({ basePath }: AdminUsersViewProps) {
 
         async function load() {
             try {
-                const data = await AdminService.getUsers();
+                const data = await AdminService.getUsers(organizationId);
                 setUsers(data);
             } catch (e) { console.error(e); }
             finally { setLoading(false); }
         }
         load();
-    }, []);
+    }, [organizationId]);
 
     const canManageUsers = userData?.features?.canManageUsers !== false;
 

@@ -4,7 +4,7 @@ import CourseEditor from "@/app/components/Features/Courses/CourseEditor";
 export default function CreateCoursePage() {
     return (
         <div>
-            <CourseEditor userRole="admin" />
+            <CourseEditor userRole="admin" basePath="/dashboard/admin" />
         </div>
     );
 }

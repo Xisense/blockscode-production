@@ -84,10 +84,13 @@ export default function CodeMirrorEditor({
     // Handle updates to value (external changes)
     useEffect(() => {
         const view = viewRef.current;
-        if (view && value !== view.state.doc.toString()) {
-            view.dispatch({
-                changes: { from: 0, to: view.state.doc.length, insert: value }
-            });
+        if (view) {
+            const currentValue = view.state.doc.toString();
+            if (value !== currentValue) {
+                view.dispatch({
+                    changes: { from: 0, to: currentValue.length, insert: value }
+                });
+            }
         }
     }, [value]);
 

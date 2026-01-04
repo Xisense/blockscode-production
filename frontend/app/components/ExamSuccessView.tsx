@@ -76,13 +76,6 @@ export default function ExamSuccessView({ userDetails, onDone }: ExamSuccessView
                 </div>
 
                 <div className="flex flex-col items-center gap-6 w-full max-w-md">
-                    <button
-                        onClick={onDone}
-                        className="w-full h-14 bg-slate-900 hover:bg-black text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all active:scale-95 shadow-xl shadow-slate-200"
-                    >
-                        Return to Dashboard
-                    </button>
-
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         You can now safely close this window.

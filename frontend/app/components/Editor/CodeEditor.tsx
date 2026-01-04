@@ -10,11 +10,20 @@ export default function CodeEditor(props: CodeEditorProps) {
     const [isFooterExpanded, setIsFooterExpanded] = useState(false);
     const [isTerminalOpen, setIsTerminalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<"testcases" | "terminal" | "input">("testcases");
-    const [selectedTestCase, setSelectedTestCase] = useState(1);
+    const [selectedTestCase, setSelectedTestCase] = useState(0);
     const [isFullScreen, setIsFullScreen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
     const { editorRef, view } = useEditor({ ...props, language: currentLang });
+
+    // Validate selectedTestCase index when props change
+    useEffect(() => {
+        if (props.testCases && props.testCases.length > 0) {
+            if (selectedTestCase >= props.testCases.length) {
+                setSelectedTestCase(0);
+            }
+        }
+    }, [props.testCases, selectedTestCase]);
 
     useEffect(() => {
         setCurrentLang(props.language);
@@ -74,14 +83,76 @@ export default function CodeEditor(props: CodeEditorProps) {
 
     const getFirstLine = (text: string) => text.split("\n")[0].trim();
 
+    const [customInput, setCustomInput] = useState("");
+
+    const handleRun = async () => {
+        if (view) {
+            const code = view.state.doc.toString();
+            let inputToRun = customInput;
+            let expectedOutput: string | undefined = undefined;
+            let indexToPass: number | undefined = undefined;
+
+            if (activeTab === "testcases" && props.testCases && props.testCases.length > 0) {
+                // Robustly determine index: if selectedTestCase is out of bounds, use 0
+                const validIndex = (selectedTestCase >= 0 && selectedTestCase < props.testCases.length)
+                    ? selectedTestCase
+                    : 0;
+
+                const tc = props.testCases[validIndex];
+                if (tc) {
+                    inputToRun = tc.input || "";
+                    expectedOutput = tc.expected || tc.expectedOutput || "";
+                    indexToPass = validIndex;
+
+                    // Auto-correct state if needed so UI reflects what we actually ran
+                    if (validIndex !== selectedTestCase) {
+                        setSelectedTestCase(validIndex);
+                    }
+                }
+            }
+
+            console.log('CodeEditor handleRun', {
+                activeTab,
+                indexToPass,
+                selectedTestCase,
+                testCasesLength: props.testCases?.length
+            }); // DEBUG
+
+            if (props.actions?.onRun) {
+                const result = await props.actions.onRun(code, inputToRun, expectedOutput, indexToPass);
+                
+                // If result is returned (it should be now), use it to switch tabs
+                if (result && typeof result === 'object') {
+                    if (result.error) {
+                        setActiveTab("terminal");
+                    } else if (indexToPass !== undefined) {
+                        // If running a test case and no error (even if failed), show test cases
+                        setActiveTab("testcases");
+                    } else {
+                        // Custom input -> terminal
+                        setActiveTab("terminal");
+                    }
+                } else {
+                    // Fallback if no result returned (legacy behavior)
+                    if (indexToPass !== undefined) {
+                        setActiveTab("testcases");
+                    } else {
+                        setActiveTab("terminal");
+                    }
+                }
+            }
+            
+            setIsTerminalOpen(true);
+        }
+    };
+
     return (
         <div
             ref={containerRef}
             className={`flex flex-col bg-white border border-slate-200 rounded-lg overflow-hidden relative transition-all duration-300 ${isFullScreen ? 'h-screen w-screen z-[9999] rounded-none' : 'h-full ' + (props.className || '')
                 }`}
         >
-
-            {/* 1. TOP BAR */}
+            {/* ... Top Bar & Header ... */}
             {!props.hideTopBar && (
                 <div className="px-4 py-3 bg-white border-b border-slate-100 flex items-center justify-between z-[60]">
                     {!props.hideLanguageSelector ? (
@@ -105,7 +176,6 @@ export default function CodeEditor(props: CodeEditorProps) {
                                 Read Only
                             </div>
                         )}
-                        {/* Snapshot Camera Icon */}
                         <button
                             onClick={takeSnapshot}
                             title="Take Snapshot"
@@ -113,8 +183,6 @@ export default function CodeEditor(props: CodeEditorProps) {
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
                         </button>
-
-                        {/* Fullscreen Icon */}
                         <button
                             onClick={toggleFullScreen}
                             title={isFullScreen ? "Exit Fullscreen" : "Fullscreen"}
@@ -130,7 +198,6 @@ export default function CodeEditor(props: CodeEditorProps) {
                 </div>
             )}
 
-            {/* 2. FIXED HEADER BOILERPLATE */}
             {currentLang.header?.trim() && (
                 <div
                     className="bg-[#f8f9fa] border-b border-slate-100 px-4 py-2 cursor-pointer hover:bg-slate-100 transition-colors group select-none relative z-50"
@@ -154,18 +221,16 @@ export default function CodeEditor(props: CodeEditorProps) {
                 </div>
             )}
 
-            {/* 3. SCROLLABLE EDITOR */}
             <div
                 ref={editorRef}
                 className="flex-1 w-full bg-white relative overflow-hidden"
             ></div>
 
-            {/* 4. TERMINAL DRAWER (Higher Z-index to cover boilerplate) */}
+            {/* TERMINAL DRAWER */}
             <div
                 className={`absolute bottom-[60px] left-0 right-0 bg-white border-t border-slate-200 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out z-[100] ${isTerminalOpen ? 'h-[320px] opacity-100 translate-y-0' : 'h-0 opacity-0 translate-y-10 pointer-events-none'
                     }`}
             >
-                {/* Terminal Header */}
                 <div className="flex items-center justify-between bg-[#fff4ee] px-4 h-11 select-none">
                     <div className="flex items-center h-full gap-4 pl-2">
                         {["testcases", "terminal", "input"].map((t) => (
@@ -187,100 +252,115 @@ export default function CodeEditor(props: CodeEditorProps) {
                     </button>
                 </div>
 
-                {/* Content Area */}
                 <div className="p-6 overflow-hidden h-full">
                     {activeTab === "testcases" && (
                         <div className="flex h-full gap-8">
-                            {/* Redesigned Test Cases: Modern Grid Pills (from props.testCases if available) */}
                             <div className="w-[260px] flex flex-col gap-3 content-start">
                                 <div className="flex flex-wrap gap-2">
-                                    {(props.testCases && props.testCases.length > 0 ? props.testCases : [1, 2, 3, 4]).map((tc: any, idx: number) => (
+                                    {(props.testCases || []).map((tc: any, idx: number) => (
                                         <button
                                             key={idx}
                                             onClick={() => setSelectedTestCase(idx)}
-                                            className={`flex-1 min-w-[70px] flex items-center justify-center gap-2 py-2.5 rounded-lg text-[11px] font-bold border transition-all ${selectedTestCase === idx
+                                            className={`flex-1 min-w-[70px] flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg text-[11px] font-bold border transition-all ${selectedTestCase === idx
                                                 ? 'bg-[#e67e22] text-white border-[#e67e22]'
-                                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                                : (tc.passed === true ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : (tc.passed === false ? 'bg-red-50 text-red-600 border-red-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'))
                                                 }`}
                                         >
-                                            Case {idx + 1}
+                                            <span>Case {idx + 1}</span>
+                                            {(tc.points || tc.marks) && (
+                                                <span className={`text-[9px] ${selectedTestCase === idx ? 'text-white/80' : 'text-slate-400'}`}>
+                                                    {tc.points || tc.marks} pts
+                                                </span>
+                                            )}
                                         </button>
                                     ))}
-                                </div>
-
-                                <div className="mt-4 p-3 bg-emerald-50 rounded-lg flex items-center justify-between">
-                                    <span className="text-[11px] font-bold text-emerald-600">PASSED</span>
-                                    <span className="text-[12px] font-black text-emerald-700">{props.testCases ? `0 / ${props.testCases.length}` : '0 / 4'}</span>
-                                </div>
-
-                                <div className="flex-1 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-10">
-                                    {(props.testCases && props.testCases.length > 0) ? (
-                                        <div className="space-y-4">
-                                            {(() => {
-                                                const current = props.testCases[selectedTestCase];
-                                                const input = current?.input ?? current?.stdin ?? current?.args ?? JSON.stringify(current);
-                                                const expected = current?.expected ?? current?.output ?? current?.stdout ?? '';
-                                                return (
-                                                    <>
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                            <div className="flex flex-col gap-2">
-                                                                <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Input</span>
-                                                                <div className="bg-slate-50 p-4 rounded-xl text-[13px] font-mono border border-slate-100/50">{input}</div>
-                                                            </div>
-                                                            <div className="flex flex-col gap-2">
-                                                                <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Expected</span>
-                                                                <div className="bg-slate-50 p-4 rounded-xl text-[13px] font-mono border border-slate-100/50 text-[#e67e22]">{expected}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col gap-2">
-                                                            <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Actual Output</span>
-                                                            <div className="bg-white border-2 border-dashed border-slate-100 h-20 rounded-xl flex items-center justify-center text-slate-300 italic text-xs">Waiting for execution...</div>
-                                                        </div>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
-                                    ) : (
-                                        <div className="flex-1 flex flex-col gap-2">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="flex flex-col gap-2">
-                                                    <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Input</span>
-                                                    <div className="bg-slate-50 p-4 rounded-xl text-[13px] font-mono border border-slate-100/50">10 20</div>
-                                                </div>
-                                                <div className="flex flex-col gap-2">
-                                                    <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Expected</span>
-                                                    <div className="bg-slate-50 p-4 rounded-xl text-[13px] font-mono border border-slate-100/50 text-[#e67e22]">20 10</div>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col gap-2">
-                                                <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Actual Output</span>
-                                                <div className="bg-white border-2 border-dashed border-slate-100 h-20 rounded-xl flex items-center justify-center text-slate-300 italic text-xs">Waiting for execution...</div>
-                                            </div>
-                                        </div>
+                                    {(!props.testCases || props.testCases.length === 0) && (
+                                        <div className="text-slate-400 text-xs italic p-2">No test cases available.</div>
                                     )}
                                 </div>
+                                {(props.testCases && props.testCases.length > 0 && props.testCases.some((tc: any) => tc.passed !== undefined)) && (
+                                    <div className="mt-4 p-3 bg-emerald-50 rounded-lg flex items-center justify-between">
+                                        <span className="text-[11px] font-bold text-emerald-600">PASSED</span>
+                                        <span className="text-[12px] font-black text-emerald-700">
+                                            {props.testCases.filter((tc: any) => tc.passed).length} / {props.testCases.length}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex-1 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-10">
-                                {/* Right-side detailed view (history, logs, etc) */}
-                                <div className="p-6 bg-white rounded-lg border border-slate-100 min-h-[320px]">
-                                    <h3 className="text-sm font-black text-slate-800 mb-2">Test Case Details</h3>
-                                    <pre className="text-xs font-mono text-slate-700 whitespace-pre-wrap">
-                                        {JSON.stringify(props.testCases && props.testCases[selectedTestCase] ? props.testCases[selectedTestCase] : { sample: 'No testcases supplied by backend' }, null, 2)}
-                                    </pre>
-                                </div>
+                                {props.testCases && props.testCases[selectedTestCase] ? (
+                                    <>
+                                        {props.testCases[selectedTestCase].isPublic === false ? (
+                                            <div className="flex flex-col items-center justify-center h-full gap-4 opacity-50 p-8 border-2 border-dashed border-slate-200 rounded-xl">
+                                                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
+                                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7c.84 0 1.68-.1 2.47-.28" /><path d="M2 2l20 20" /></svg>
+                                                </div>
+                                                <div className="text-center">
+                                                    <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Hidden Test Case</h3>
+                                                    {(props.testCases[selectedTestCase].points || props.testCases[selectedTestCase].marks) && (
+                                                        <div className="mt-2 inline-block px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-600">
+                                                            {props.testCases[selectedTestCase].points || props.testCases[selectedTestCase].marks} Points
+                                                        </div>
+                                                    )}
+                                                    <p className="text-xs text-slate-500 mt-1">Input and output are hidden for this case.</p>
+                                                </div>
+                                                {props.testCases[selectedTestCase].passed !== undefined && (
+                                                    <div className={`mt-4 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider ${props.testCases[selectedTestCase].passed ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                                        {props.testCases[selectedTestCase].passed ? 'Passed' : 'Failed'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {(props.testCases[selectedTestCase].points || props.testCases[selectedTestCase].marks) && (
+                                                    <div className="flex justify-end mb-2">
+                                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                                            {props.testCases[selectedTestCase].points || props.testCases[selectedTestCase].marks} Points
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="flex flex-col gap-2">
+                                                        <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Input</span>
+                                                        <div className="bg-slate-50 p-4 rounded-xl text-[13px] font-mono border border-slate-100/50 whitespace-pre-wrap text-slate-700">{props.testCases[selectedTestCase].input}</div>
+                                                    </div>
+                                                    <div className="flex flex-col gap-2">
+                                                        <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Expected</span>
+                                                        <div className="bg-slate-50 p-4 rounded-xl text-[13px] font-mono border border-slate-100/50 text-[#e67e22] whitespace-pre-wrap">{props.testCases[selectedTestCase].expected ?? props.testCases[selectedTestCase].expectedOutput}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col gap-2">
+                                                    <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Actual Output</span>
+                                                    {props.testCases[selectedTestCase].actualOutput !== undefined ? (
+                                                        <div className={`bg-white border-2 ${props.testCases[selectedTestCase].passed ? 'border-emerald-100 bg-emerald-50/20' : 'border-red-100 bg-red-50/20'} p-4 rounded-xl text-[13px] font-mono whitespace-pre-wrap text-slate-700`}>
+                                                            {props.testCases[selectedTestCase].actualOutput}
+                                                            {props.testCases[selectedTestCase].error && (
+                                                                <div className="text-red-500 mt-2 font-bold">{props.testCases[selectedTestCase].error}</div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-white border-2 border-dashed border-slate-100 h-20 rounded-xl flex items-center justify-center text-slate-300 italic text-xs">Waiting for execution...</div>
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-400 text-sm">Select a test case to view details</div>
+                                )}
                             </div>
                         </div>
                     )}
 
                     {activeTab === "terminal" && (
-                        <div className="bg-slate-900 rounded-xl p-6 h-[200px] font-mono text-[13px] text-emerald-400 overflow-y-auto shadow-inner">
+                        <div className="bg-slate-900 rounded-xl p-6 h-[200px] font-mono text-[13px] text-emerald-400 overflow-y-auto shadow-inner whitespace-pre-wrap">
                             <div className="flex items-center gap-2 mb-2 opacity-50">
                                 <span className="w-2 h-2 rounded-full bg-red-400"></span>
                                 <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
                                 <span className="w-2 h-2 rounded-full bg-green-400"></span>
                             </div>
-                            {`$ g++ solution.cpp -o solution\n$ ./solution\n\nExecution finished in 42ms.`}
+                            {props.terminalOutput || "No output yet. Run your code to see the output here."}
                         </div>
                     )}
 
@@ -293,16 +373,16 @@ export default function CodeEditor(props: CodeEditorProps) {
                             <textarea
                                 className="flex-1 w-full bg-white p-4 text-[13px] font-mono outline-none focus:ring-1 focus:ring-orange-100 transition-all resize-none text-slate-700"
                                 placeholder="Type your custom input here..."
+                                value={customInput}
+                                onChange={(e) => setCustomInput(e.target.value)}
                             ></textarea>
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* 5. RUN BAR & FOOTER BOILERPLATE */}
             {!props.hideRunBar && (
                 <div className="flex flex-col bg-white border-t border-slate-200 relative">
-                    {/* FOOTER BOILERPLATE (Stays below terminal) */}
                     {currentLang.footer?.trim() && (
                         <div
                             className="bg-[#f8f9fa] px-4 py-2 cursor-pointer hover:bg-slate-100 transition-colors select-none border-b border-slate-100 relative z-20"
@@ -326,7 +406,6 @@ export default function CodeEditor(props: CodeEditorProps) {
                         </div>
                     )}
 
-                    {/* ACTION BAR (Elevated to highest z-index to stay clickable) */}
                     <div className="px-5 py-3 flex items-center justify-between h-[60px] bg-white select-none relative z-[120]">
                         <div className="flex items-center gap-4">
                             <button
@@ -345,11 +424,24 @@ export default function CodeEditor(props: CodeEditorProps) {
                         <div className="flex items-center gap-6">
                             {!props.options?.readOnly && (
                                 <>
-                                    <button className="text-slate-400 hover:text-slate-600 transition-all p-2 active:rotate-180 duration-500">
+                                    <button
+                                        onClick={async () => {
+                                            if (props.actions?.onReset && view) {
+                                                const resetCode = await props.actions.onReset();
+                                                if (typeof resetCode === 'string') {
+                                                    view.dispatch({
+                                                        changes: { from: 0, to: view.state.doc.length, insert: resetCode }
+                                                    });
+                                                }
+                                            }
+                                        }}
+                                        title="Reset Code"
+                                        className="text-slate-400 hover:text-slate-600 transition-all p-2 active:rotate-180 duration-500"
+                                    >
                                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
                                     </button>
                                     <button
-                                        onClick={() => props.actions?.onRun?.()}
+                                        onClick={handleRun}
                                         disabled={props.isExecuting}
                                         className={`px-6 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl text-[12px] uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-[0.98] disabled:opacity-70 disabled:cursor-wait flex items-center gap-2`}
                                     >
@@ -364,9 +456,25 @@ export default function CodeEditor(props: CodeEditorProps) {
                                     </button>
 
                                     <button
-                                        onClick={() => {
+                                        onClick={async () => {
                                             if (view) {
-                                                props.actions?.onSubmit?.(view.state.doc.toString());
+                                                if (props.actions?.onSubmit) {
+                                                    const result = await props.actions.onSubmit(view.state.doc.toString());
+                                                    
+                                                    // If result is returned, use it to switch tabs
+                                                    if (result && typeof result === 'object') {
+                                                        if (result.error) {
+                                                            setActiveTab("terminal");
+                                                        } else {
+                                                            // Submit usually runs all test cases, so show test cases tab
+                                                            setActiveTab("testcases");
+                                                        }
+                                                    } else {
+                                                        // Fallback
+                                                        setActiveTab("testcases");
+                                                    }
+                                                    setIsTerminalOpen(true);
+                                                }
                                             }
                                         }}
                                         className={`px-10 py-3 bg-[var(--brand)] text-white font-black rounded-xl text-[12px] uppercase tracking-widest shadow-lg shadow-[var(--brand-light)] hover:bg-[var(--brand-dark)] hover:-translate-y-0.5 transition-all active:translate-y-0 active:scale-[0.98] flex items-center gap-2`}
@@ -380,13 +488,13 @@ export default function CodeEditor(props: CodeEditorProps) {
                     </div>
                 </div>
             )}
-
             <style jsx global>{`
         .cm-editor { 
             outline: none !important; 
             height: 100%; 
             background: #ffffff !important;
         }
+
         .cm-scroller { padding-top: 15px; }
         .cm-content {
             font-family: 'Geist Mono', 'JetBrains Mono', monospace !important;
@@ -395,7 +503,7 @@ export default function CodeEditor(props: CodeEditorProps) {
             color: #1e293b !important;
             caret-color: #f77621 !important;
         }
-        
+
         /* Autocomplete / Code Suggestions fix */
         .cm-tooltip.cm-tooltip-autocomplete {
             background-color: #ffffff !important;

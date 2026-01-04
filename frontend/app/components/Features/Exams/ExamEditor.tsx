@@ -11,9 +11,10 @@ interface ExamEditorProps {
     initialData?: any;
     userRole?: 'admin' | 'teacher';
     basePath?: string;
+    organizationId?: string;
 }
 
-export default function ExamEditor({ initialData, userRole = 'teacher', basePath = '/dashboard/teacher' }: ExamEditorProps) {
+export default function ExamEditor({ initialData, userRole = 'teacher', basePath = '/dashboard/teacher', organizationId }: ExamEditorProps) {
     const router = useRouter();
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
     const [userData, setUserData] = useState<any>(null);
@@ -41,6 +42,7 @@ export default function ExamEditor({ initialData, userRole = 'teacher', basePath
                     basePath={basePath}
                     userRole={userRole === 'admin' ? 'admin' : 'teacher'}
                     orgPermissions={userData?.features}
+                    organizationId={organizationId}
                 />
             </div>
             <AlertModal

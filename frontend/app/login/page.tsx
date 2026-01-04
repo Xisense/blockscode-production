@@ -123,7 +123,7 @@ export default function LoginPage() {
                                 <label className="text-[11px] font-black uppercase tracking-widest text-slate-400">
                                     Password
                                 </label>
-                                <Link href="/forgot-password" ml-1="" className="text-[10px] font-black uppercase tracking-widest text-[var(--brand)] hover:text-[var(--brand-dark)] transition-colors">
+                                <Link href="/forgot-password" className="ml-1 text-[10px] font-black uppercase tracking-widest text-[var(--brand)] hover:text-[var(--brand-dark)] transition-colors">
                                     Forgot Password?
                                 </Link>
                             </div>
@@ -179,9 +179,9 @@ export default function LoginPage() {
                     <div className="mt-10 pt-8 border-t border-slate-50 text-center">
                         <p className="text-slate-400 font-bold text-xs tracking-tight">
                             Don't have an account yet?
-                            <button className="text-[var(--brand)] ml-1 hover:underline decoration-2 underline-offset-4">
+                            <Link href="/contact" className="text-[var(--brand)] ml-1 hover:underline decoration-2 underline-offset-4">
                                 Contact Administrator
-                            </button>
+                            </Link>
                         </p>
                     </div>
                 </div>

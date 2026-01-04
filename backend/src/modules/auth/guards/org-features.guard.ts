@@ -19,6 +19,11 @@ export class OrgFeaturesGuard implements CanActivate {
         const request = context.switchToHttp().getRequest();
         const user = request.user;
 
+        // Super admins bypass feature checks
+        if (user?.role === 'SUPER_ADMIN') {
+            return true;
+        }
+
         if (!user || !user.orgId) {
             throw new ForbiddenException('Organization context required');
         }

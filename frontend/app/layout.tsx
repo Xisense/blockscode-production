@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 
 import { ToastProvider } from "./components/Common/Toast";
 import { OrganizationProvider } from "./context/OrganizationContext";
+import { Toaster } from "@/components/ui/toaster";
 
 export default function RootLayout({
   children,
@@ -33,6 +34,7 @@ export default function RootLayout({
         <OrganizationProvider>
           <ToastProvider>
             {children}
+            <Toaster />
           </ToastProvider>
         </OrganizationProvider>
       </body>

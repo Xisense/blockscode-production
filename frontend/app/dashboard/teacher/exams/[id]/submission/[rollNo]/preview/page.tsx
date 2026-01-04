@@ -5,6 +5,7 @@ import Loading from '@/app/loading';
 import UnitRenderer, { UnitQuestion } from '@/app/components/UnitRenderer';
 import UnitNavHeader from '@/app/components/UnitNavHeader';
 import ExamSidebar from '@/app/components/ExamSidebar';
+import { useToast } from '@/app/components/Common/Toast';
 
 // submission details and questions are now fetched from API
 
@@ -12,6 +13,7 @@ import { TeacherService } from '@/services/api/TeacherService';
 
 export default function SubmissionPreviewPage({ params }: { params: Promise<{ id: string, rollNo: string }> }) {
     const { id, rollNo: identifier } = React.use(params);
+    const { success, error: toastError } = useToast();
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [activeTab, setActiveTab] = useState<"question" | "attempts">("question");
     const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>(undefined);
@@ -76,16 +78,22 @@ export default function SubmissionPreviewPage({ params }: { params: Promise<{ id
         const totalCalculated = Object.values(marks).reduce((acc, curr) => acc + (parseFloat(curr as string) || 0), 0);
 
         try {
-            await TeacherService.updateSubmissionScore(id, submissionData.details.sessionId, totalCalculated);
+            // Convert marks to numbers for storage
+            const internalMarks: Record<string, number> = {};
+            Object.entries(marks).forEach(([k, v]) => {
+                internalMarks[k] = parseFloat(v as string) || 0;
+            });
+
+            await TeacherService.updateSubmissionScore(id, submissionData.details.sessionId, totalCalculated, internalMarks);
             // Update local state to reflect the new score
             setSubmissionData((prev: any) => ({
                 ...prev,
                 details: { ...prev.details, score: totalCalculated }
             }));
-            alert(`Grades saved! Total Score: ${totalCalculated}`);
+            success(`Grades saved! Total Score: ${totalCalculated}`);
         } catch (error) {
             console.error("Failed to save grades", error);
-            alert("Failed to save grades");
+            toastError("Failed to save grades");
         }
     };
 
@@ -118,6 +126,14 @@ export default function SubmissionPreviewPage({ params }: { params: Promise<{ id
 
     const handleMarkChange = (val: string) => {
         if (!currentQuestion) return;
+        
+        // Validate input: allow empty string or numbers only
+        if (val !== '' && isNaN(Number(val))) return;
+
+        // Check max marks
+        const max = Number(currentQuestion.marks) || Number(currentQuestion.points) || (currentQuestion.type === 'Coding' ? 10 : 1);
+        if (Number(val) > max) return;
+
         setMarks(prev => ({ ...prev, [currentQuestion.id]: val }));
     };
 
@@ -137,7 +153,7 @@ export default function SubmissionPreviewPage({ params }: { params: Promise<{ id
         );
     }
 
-    const currentQuestionPoints = Number(currentQuestion?.points) || (currentQuestion?.type === 'Coding' ? 10 : 1);
+    const currentQuestionPoints = Number(currentQuestion?.marks) || Number(currentQuestion?.points) || (currentQuestion?.type === 'Coding' ? 10 : 1);
 
     return (
         <div className="h-screen flex flex-col bg-white overflow-hidden">

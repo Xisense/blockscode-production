@@ -10,7 +10,7 @@ export const PLAYGROUND_LANGUAGES: LanguageConfig[] = [
         label: "C++",
         header: "",
         footer: "",
-        initialBody: `#include <iostream>\n\nint main() {\n    std::cout << "Hello, World!" << std::endl;\n    return 0;\n}`,
+        initialBody: `// Write your C++ code here...`,
         extension: async () => cpp(),
     },
     {
@@ -18,7 +18,7 @@ export const PLAYGROUND_LANGUAGES: LanguageConfig[] = [
         label: "JavaScript",
         header: "",
         footer: "",
-        initialBody: `console.log("Hello Playgound!");\n\nconst greet = (name) => {\n    return \`Hello, \${name}!\`;\n};\n\nconsole.log(greet("Antigravity"));`,
+        initialBody: `// Write your JavaScript code here...`,
         extension: async () => javascript(),
     },
     {
@@ -26,7 +26,7 @@ export const PLAYGROUND_LANGUAGES: LanguageConfig[] = [
         label: "Python",
         header: "",
         footer: "",
-        initialBody: `def hello():\n    print("Hello from Python Playground!")\n\nif __name__ == "__main__":\n    hello()`,
+        initialBody: `# Write your Python code here...`,
         extension: async () => python(),
     },
     {
@@ -34,7 +34,7 @@ export const PLAYGROUND_LANGUAGES: LanguageConfig[] = [
         label: "Java",
         header: "",
         footer: "",
-        initialBody: `public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello from Java!");\n    }\n}`,
+        initialBody: `// Write your Java code here...\n\npublic class Main {\n    public static void main(String[] args) {\n        \n    }\n}`,
         extension: async () => java(),
     }
 ];

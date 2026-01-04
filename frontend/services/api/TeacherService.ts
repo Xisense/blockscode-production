@@ -163,6 +163,20 @@ export const TeacherService = {
         }
     },
 
+    async unenrollStudent(courseId: string, studentId: string) {
+        try {
+            const res = await fetch(`${BASE_URL}/teacher/courses/${courseId}/enroll/${studentId}`, {
+                method: 'DELETE',
+                headers: getHeaders(false)
+            });
+            if (!res.ok) throw new Error('Failed to unenroll student');
+            return await res.json();
+        } catch (error) {
+            console.error('[TeacherService] Error', error);
+            throw error;
+        }
+    },
+
     async getCourses() {
         try {
             const res = await fetch(`${BASE_URL}/teacher/courses`, {
@@ -208,11 +222,12 @@ export const TeacherService = {
         }
     },
 
-    async createCourse(data: any) {
+    async createCourse(data: any, orgId?: string) {
         try {
             // Transform for Backend
             const payload = {
                 ...data,
+                orgId, // Pass orgId if provided (for Super Admin impersonation)
                 modules: (data.sections || []).map((s: any, idx: number) => ({
                     title: s.title,
                     order: idx,
@@ -314,6 +329,8 @@ export const TeacherService = {
             if (!res.ok) throw new Error('Failed to fetch exam');
             const data = await res.json();
 
+            if (!data) throw new Error('Exam not found');
+
             // Transform JSON questions to sections for builder
             return {
                 ...data,
@@ -326,10 +343,11 @@ export const TeacherService = {
         }
     },
 
-    async createExam(data: any) {
+    async createExam(data: any, orgId?: string) {
         try {
             const payload = {
                 ...data,
+                orgId, // Pass orgId if provided (for Super Admin impersonation)
                 isActive: data.isVisible ?? true
             };
 
@@ -448,12 +466,12 @@ export const TeacherService = {
         }
     },
 
-    async updateSubmissionScore(examId: string, sessionId: string, score: number) {
+    async updateSubmissionScore(examId: string, sessionId: string, score: number, internalMarks?: Record<string, number>) {
         try {
             const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/submissions/${sessionId}/score`, {
                 method: 'PUT',
                 headers: getHeaders(),
-                body: JSON.stringify({ score })
+                body: JSON.stringify({ score, internalMarks })
             });
             if (!res.ok) throw new Error('Failed to update score');
             return await res.json();

@@ -3,6 +3,7 @@ import { InjectRedis } from '@nestjs-modules/ioredis';
 import { Redis } from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { MailService } from '../../services/mail.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -10,7 +11,8 @@ export class AuthService {
     constructor(
         private prisma: PrismaService,
         private jwtService: JwtService,
-        @InjectRedis() private readonly redis: Redis
+        @InjectRedis() private readonly redis: Redis,
+        private mailService: MailService
     ) { }
 
     async validateUser(email: string, pass: string): Promise<any> {
@@ -212,5 +214,39 @@ export class AuthService {
         });
 
         return { success: true, message: 'Password updated successfully' };
+    }
+
+    async forgotPassword(email: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            include: { organization: true }
+        });
+
+        if (!user) {
+            // Return success to prevent email enumeration
+            return { success: true, message: 'If your email is registered, you will receive a password reset link.' };
+        }
+
+        const tempPassword = Math.random().toString(36).slice(-8);
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                password: hashedPassword,
+                mustChangePassword: true
+            }
+        });
+
+        const orgName = user.organization?.name || 'BlocksCode';
+        const primaryColor = user.organization?.primaryColor || '#fc751b';
+
+        await this.mailService.sendPasswordResetEmail(
+            { email: user.email, name: user.name || 'User' },
+            tempPassword,
+            { name: orgName, primaryColor }
+        );
+
+        return { success: true, message: 'If your email is registered, you will receive a password reset link.' };
     }
 }

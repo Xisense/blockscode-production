@@ -9,6 +9,7 @@ interface MCQOption {
 interface MCQOptionsProps {
     options: MCQOption[];
     multiSelect?: boolean;
+    maxSelections?: number;
     onSubmit: (selectedIds: string[]) => void;
     onChange?: (selectedIds: string[]) => void;
     onReset: () => void;
@@ -20,6 +21,7 @@ interface MCQOptionsProps {
 export default function MCQOptions({
     options,
     multiSelect = false,
+    maxSelections,
     onSubmit,
     onChange,
     onReset,
@@ -29,7 +31,10 @@ export default function MCQOptions({
 }: MCQOptionsProps) {
     const [internalSelectedIds, setInternalSelectedIds] = useState<string[]>([]);
 
-    const selectedIds = externalSelectedIds !== undefined ? externalSelectedIds : internalSelectedIds;
+    // Ensure selectedIds is always an array
+    const rawSelectedIds = externalSelectedIds !== undefined ? externalSelectedIds : internalSelectedIds;
+    const selectedIds = Array.isArray(rawSelectedIds) ? rawSelectedIds : (rawSelectedIds ? [rawSelectedIds] : []);
+    
     const isInteractionDisabled = readOnly;
 
     const toggleOption = (id: string) => {
@@ -37,9 +42,16 @@ export default function MCQOptions({
 
         let newSelected: string[] = [];
         if (multiSelect) {
-            newSelected = internalSelectedIds.includes(id)
-                ? internalSelectedIds.filter(p => p !== id)
-                : [...internalSelectedIds, id];
+            if (selectedIds.includes(id)) {
+                newSelected = selectedIds.filter(p => p !== id);
+            } else {
+                // Check limit
+                if (maxSelections && selectedIds.length >= maxSelections) {
+                    // Optional: Show toast or shake effect? For now just prevent.
+                    return; 
+                }
+                newSelected = [...selectedIds, id];
+            }
         } else {
             newSelected = [id];
         }
@@ -84,9 +96,13 @@ export default function MCQOptions({
                                         ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
                                         : 'border-slate-200 text-transparent' + (!isInteractionDisabled ? ' group-hover:border-slate-300' : '')
                                         }`}>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="20 6 9 17 4 12" />
-                                        </svg>
+                                        {multiSelect ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="20 6 9 17 4 12" />
+                                            </svg>
+                                        ) : (
+                                            <div className={`w-2.5 h-2.5 rounded-full bg-white ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
+                                        )}
                                     </div>
                                     <span
                                         className={`font-medium leading-relaxed ${isSelected ? 'text-[var(--brand-dark)]' : 'text-slate-600'}`}

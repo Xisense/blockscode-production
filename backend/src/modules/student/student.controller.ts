@@ -33,6 +33,16 @@ export class StudentController {
         return this.studentService.getExamAttempts(user.id);
     }
 
+    @Get('exam/:sessionId/result')
+    async getExamResult(@User() user: any, @Param('sessionId') sessionId: string) {
+        return this.studentService.getExamResult(user.id, sessionId);
+    }
+
+    @Get('unit-attempts')
+    async getUnitAttempts(@User() user: any) {
+        return this.studentService.getDetailedUnitSubmissions(user.id);
+    }
+
     @Get('analytics')
     async getAnalytics(@User() user: any) {
         return this.studentService.getAnalytics(user.id);
@@ -74,5 +84,10 @@ export class StudentController {
     @Post('units/:unitId/submit')
     async submitUnit(@User() user: any, @Param('unitId') unitId: string, @Body() data: any) {
         return this.studentService.submitUnit(user.id, unitId, data);
+    }
+
+    @Get('course/:slug/progress')
+    async getCourseProgress(@User() user: any, @Param('slug') slug: string) {
+        return this.studentService.getCourseProgress(user.id, slug);
     }
 }

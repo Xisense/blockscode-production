@@ -158,6 +158,30 @@ export const AuthService = {
         return user?.role || null;
     },
 
+    async forgotPassword(email: string): Promise<any> {
+        try {
+            const res = await fetch(`${BASE_URL}/auth/forgot-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+
+            if (!res.ok) {
+                // Handle rate limiting specifically if needed, but generic error is fine for now
+                if (res.status === 429) {
+                    throw new Error('Too many requests. Please try again later.');
+                }
+                const error = await res.json();
+                throw new Error(error.message || 'Request failed');
+            }
+
+            return await res.json();
+        } catch (error) {
+            console.error('[AuthService] Forgot Password error:', error);
+            throw error;
+        }
+    },
+
     logout(reason?: string) {
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');

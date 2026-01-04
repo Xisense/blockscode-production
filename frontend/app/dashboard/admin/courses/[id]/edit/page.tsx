@@ -1,60 +1,60 @@
 "use client";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import CourseEditor from "@/app/components/Features/Courses/CourseEditor";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import AlertModal from "@/app/components/Common/AlertModal";
+import { TeacherService } from "@/services/api/TeacherService";
+import Loading from "@/app/loading";
 
-export default function EditCoursePage({ params }: { params: { id: string } }) {
+export default function EditCoursePage({ params }: { params: Promise<{ id: string }> }) {
+    const resolvedParams = React.use(params);
     const router = useRouter();
+    const [course, setCourse] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
 
-    // Mock data based on ID - in a real app, this would be a fetch call
-    const mockCourse = {
-        title: "Full Stack Mastery",
-        shortDescription: "Learn from frontend to backend in this comprehensive course.",
-        longDescription: "<h1>Introduction</h1><p>Welcome to the masterclass.</p>",
-        difficulty: "Advanced",
-        tags: ["React", "Node.js", "MySQL"],
-        isVisible: true,
-        sections: [
-            {
-                id: "sec-1",
-                title: "Frontend Foundations",
-                questions: [
-                    {
-                        id: "q-1",
-                        type: "Reading",
-                        title: "Introduction to HTML5",
-                        problemStatement: "Learn the basics of HTML5.",
-                        marks: 0,
-                        difficulty: "Beginner",
-                        tags: ["HTML"],
-                        readingConfig: {
-                            contentBlocks: [
-                                { id: '1', type: 'text', content: '<p>HTML is the standard markup language...</p>' }
-                            ]
-                        }
-                    }
-                ]
+    useEffect(() => {
+        async function load() {
+            try {
+                const data = await TeacherService.getCourse(resolvedParams.id);
+                setCourse(data);
+            } catch (e: any) {
+                console.error(e);
+                setError(e.message || "Failed to load course");
+            } finally {
+                setLoading(false);
             }
-        ]
+        }
+        load();
+    }, [resolvedParams.id]);
+
+    const handleDelete = async () => {
+        try {
+            await TeacherService.deleteCourse(resolvedParams.id);
+            setAlertConfig({
+                isOpen: true,
+                title: "Deleted",
+                message: "Course deleted successfully!",
+                type: "info"
+            });
+            setTimeout(() => router.push("/dashboard/admin/courses"), 1000);
+        } catch (e: any) {
+            setAlertConfig({
+                isOpen: true,
+                title: "Error",
+                message: e.message || "Failed to delete course",
+                type: "danger"
+            });
+        }
     };
 
-    const handleDelete = () => {
-        // Mock delete logic
-        setAlertConfig({
-            isOpen: true,
-            title: "Deleted",
-            message: "Course deleted successfully!",
-            type: "info"
-        });
-        setTimeout(() => router.push("/dashboard/admin/exams"), 1000);
-    };
+    if (loading) return <Loading />;
+    if (error) return <div className="p-8 text-center text-red-500 font-bold">{error}</div>;
 
     return (
         <div>
-            <CourseEditor initialData={mockCourse as any} onDelete={handleDelete} userRole="admin" />
+            <CourseEditor initialData={course} onDelete={handleDelete} userRole="admin" basePath="/dashboard/admin" />
             <AlertModal
                 isOpen={alertConfig.isOpen}
                 title={alertConfig.title}

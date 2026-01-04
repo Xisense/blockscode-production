@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { TeacherService } from "@/services/api/TeacherService";
 import Loading from "@/app/loading";
 import { useToast } from "@/app/components/Common/Toast";
-import { Users, GraduationCap, X, Search, Filter, Mail, Calendar, CheckCircle2 } from "lucide-react";
+import { Users, GraduationCap, X, Search, Filter, Mail, Calendar, CheckCircle2, Trash2 } from "lucide-react";
 
 export default function TeacherStudentsPage() {
     const { error: toastError } = useToast();
@@ -34,6 +34,28 @@ export default function TeacherStudentsPage() {
         st.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         st.course.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const handleUnenroll = async (courseId: string, studentId: string) => {
+        if (!confirm("Are you sure you want to unenroll this student from the course?")) return;
+
+        try {
+            await TeacherService.unenrollStudent(courseId, studentId);
+            
+            // Update selected student state immediately
+            if (selectedStudent) {
+                const updatedCourses = selectedStudent.courses.filter((c: any) => c.id !== courseId);
+                setSelectedStudent({ ...selectedStudent, courses: updatedCourses });
+            }
+
+            // Refresh the main list
+            const data = await TeacherService.getStudents();
+            setStudents(data);
+            
+        } catch (error) {
+            console.error("Failed to unenroll", error);
+            toastError("Failed to unenroll student");
+        }
+    };
 
     const handlePreviewProgress = (student: any) => {
         setSelectedStudent(student);
@@ -188,15 +210,24 @@ export default function TeacherStudentsPage() {
                                 <div className="space-y-4">
                                     {selectedStudent.courses && selectedStudent.courses.length > 0 ? (
                                         selectedStudent.courses.map((course: any) => (
-                                            <div key={course.id} className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-[var(--brand)] transition-colors">
-                                                <div className="flex items-center gap-4 mb-4">
-                                                    <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-[var(--brand)] shadow-inner">
-                                                        <BookOpen size={24} />
+                                            <div key={course.id} className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-[var(--brand)] transition-colors group/course">
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-[var(--brand)] shadow-inner">
+                                                            <BookOpen size={24} />
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-black text-slate-800 text-sm leading-tight">{course.title}</h4>
+                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{course.completedUnits}/{course.totalUnits} Units Completed</p>
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        <h4 className="font-black text-slate-800 text-sm leading-tight">{course.title}</h4>
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{course.completedUnits}/{course.totalUnits} Units Completed</p>
-                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleUnenroll(course.id, selectedStudent.id)}
+                                                        className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover/course:opacity-100"
+                                                        title="Unenroll Student"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
                                                 </div>
                                                 <div className="flex items-center gap-4">
                                                     <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">

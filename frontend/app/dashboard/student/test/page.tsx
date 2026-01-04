@@ -66,15 +66,27 @@ export default function TestAttemptsPage() {
                                         <SortIcon />
                                     </div>
                                 </th>
+                                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-500">
+                                    Actions
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {attempts.length > 0 ? attempts.map((att) => (
                                 <tr key={att.id} className="hover:bg-slate-50/40 transition-colors group">
                                     <td className="px-6 py-5">
-                                        <span className="text-sm font-bold text-[var(--brand-dark)] hover:text-[var(--brand)] cursor-pointer transition-colors block">
-                                            {att.examTitle}
-                                        </span>
+                                        {att.isPublished ? (
+                                            <a 
+                                                href={`/dashboard/student/test/${att.id}/result`}
+                                                className="text-sm font-bold text-[var(--brand-dark)] hover:text-[var(--brand)] cursor-pointer transition-colors block"
+                                            >
+                                                {att.examTitle}
+                                            </a>
+                                        ) : (
+                                            <span className="text-sm font-bold text-slate-400 cursor-not-allowed block" title="Results pending">
+                                                {att.examTitle}
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="px-6 py-5">
                                         <span className={`text-sm font-bold ${att.score === 'Hidden' ? 'text-slate-300 italic' : 'text-slate-700'}`}>
@@ -88,6 +100,20 @@ export default function TestAttemptsPage() {
                                         <span className="text-sm font-medium text-slate-500">
                                             {att.startedAt ? new Date(att.startedAt).toLocaleDateString() : 'N/A'}
                                         </span>
+                                    </td>
+                                    <td className="px-6 py-5">
+                                        {att.isPublished ? (
+                                            <a 
+                                                href={`/dashboard/student/test/${att.id}/result`}
+                                                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-[var(--brand)] bg-[var(--brand-light)]/10 hover:bg-[var(--brand-light)]/20 rounded-lg transition-colors"
+                                            >
+                                                View Result
+                                            </a>
+                                        ) : (
+                                            <span className="text-xs font-medium text-slate-400 italic">
+                                                Pending
+                                            </span>
+                                        )}
                                     </td>
                                 </tr>
                             )) : (
