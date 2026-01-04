@@ -389,9 +389,6 @@ export class ExamService {
 
     async startSession(userId: string, examId: string, ip: string, deviceId: string, tabId?: string, metadata?: any) {
         try {
-            // ... (presence handling)
-            const presenceRaw = await this.redis.get(`exam:${examId}:student:${userId}:online`);
-
             // Find existing session first to resume
             const existing = await this.prisma.examSession.findUnique({
                 where: { userId_examId: { userId, examId } },

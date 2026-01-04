@@ -17,6 +17,7 @@ export default function ProfilePage() {
     const router = useRouter();
 
     const [avatar, setAvatar] = useState<string | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Password State
@@ -32,6 +33,7 @@ export default function ProfilePage() {
                 if (user) {
                     setUserData(user);
                     setName(user.name || "");
+                    if (user.profilePicture) setAvatar(user.profilePicture);
                     if (user.mustChangePassword) {
                         setActiveTab('security');
                     }
@@ -49,7 +51,10 @@ export default function ProfilePage() {
         if (!name.trim()) return;
         setSaving(true);
         try {
-            const updated = await AuthService.updateProfile({ name });
+            const updated = await AuthService.updateProfile({ 
+                name,
+                profilePicture: selectedFile || undefined
+            });
             setUserData(updated);
             toast("Your name has been updated successfully.", "success", "Profile Updated");
         } catch (error: any) {
@@ -100,6 +105,7 @@ export default function ProfilePage() {
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
+            setSelectedFile(file);
             const url = URL.createObjectURL(file);
             setAvatar(url);
         }

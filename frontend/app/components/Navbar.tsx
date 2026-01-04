@@ -411,9 +411,13 @@ function ProfileMenu({ isTeacher, isAdmin, isSuperAdmin, examConfig }: { isTeach
 
       <button
         onClick={() => setOpen(!open)}
-        className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--brand)] to-[var(--brand-dark)] flex items-center justify-center text-white font-black text-sm"
+        className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--brand)] to-[var(--brand-dark)] flex items-center justify-center text-white font-black text-sm overflow-hidden"
       >
-        {isSuperAdmin ? 'SA' : isAdmin ? 'A' : 'P'}
+        {userData?.profilePicture ? (
+          <img src={userData.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+        ) : (
+          isSuperAdmin ? 'SA' : isAdmin ? 'A' : 'P'
+        )}
       </button>
 
       {

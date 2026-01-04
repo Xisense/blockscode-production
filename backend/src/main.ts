@@ -20,6 +20,13 @@ async function bootstrap() {
     // Force reload
     await app.register(require('./fastify-cors-auth-header.plugin').default);
 
+    // Register multipart support for file uploads
+    await app.register(require('@fastify/multipart'), {
+        limits: {
+            fileSize: 5 * 1024 * 1024, // 5MB
+        },
+    });
+
     // Set global API prefix
     app.setGlobalPrefix('api');
 
@@ -44,10 +51,12 @@ async function bootstrap() {
         console.log(`Application is listening on ${address}`);
 
         // Initialize PeerServer
-        // Using require to avoid potential type issues if @types/peer is missing
-        const { PeerServer } = require('peer');
-        const peerServer = PeerServer({ port: 9001, path: '/peer' });
-        console.log('PeerServer running on port 9001, path /peer');
+        if (process.env.ENABLE_LOCAL_PEER_SERVER === 'true') {
+            // Using require to avoid potential type issues if @types/peer is missing
+            const { PeerServer } = require('peer');
+            const peerServer = PeerServer({ port: 9001, path: '/peer' });
+            console.log('PeerServer running on port 9001, path /peer');
+        }
     });
 }
 bootstrap();

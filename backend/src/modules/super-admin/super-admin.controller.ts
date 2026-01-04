@@ -1,14 +1,19 @@
-import { Controller, Get, Post, Put, Delete, Body, UseGuards, Param } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, UseGuards, Param, Req } from '@nestjs/common';
 import { SuperAdminService } from './super-admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import type { FastifyRequest } from 'fastify';
+import { StorageService } from '../../services/storage/storage.service';
 
 @Controller('super-admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('SUPER_ADMIN')
 export class SuperAdminController {
-    constructor(private readonly superAdminService: SuperAdminService) { }
+    constructor(
+        private readonly superAdminService: SuperAdminService,
+        private readonly storageService: StorageService
+    ) { }
 
     @Get('stats')
     async getStats() {
@@ -26,8 +31,36 @@ export class SuperAdminController {
     }
 
     @Post('organizations')
-    async createOrganization(@Body() data: { name: string; domain?: string; logo?: string }) {
-        return this.superAdminService.createOrganization(data);
+    async createOrganization(@Req() req: FastifyRequest) {
+        console.log('[SuperAdminController] Received createOrganization request');
+        const parts = (req as any).parts();
+        const body: any = {};
+
+        for await (const part of parts) {
+            console.log(`[SuperAdminController] Processing part: ${part.fieldname}, type: ${part.type}`);
+            if (part.type === 'file') {
+                if (part.fieldname === 'logo') {
+                    console.log('[SuperAdminController] Found logo file, uploading...');
+                    body.logo = await this.storageService.uploadFile(part, 'organizations');
+                    console.log('[SuperAdminController] Logo uploaded:', body.logo);
+                } else {
+                    await part.toBuffer(); // consume unused file
+                }
+            } else {
+                // @ts-ignore - part.value exists on field type
+                const value = part.value;
+                if (value === 'true') {
+                    body[part.fieldname] = true;
+                } else if (value === 'false') {
+                    body[part.fieldname] = false;
+                } else {
+                    body[part.fieldname] = value;
+                }
+            }
+        }
+        
+        console.log('[SuperAdminController] Final body:', body);
+        return this.superAdminService.createOrganization(body);
     }
 
     @Put('organizations/:id')

@@ -6,29 +6,22 @@ import { Queue, QueueEvents } from 'bullmq';
 
 @Injectable()
 export class CodeExecutionService {
-    private queueEvents: QueueEvents;
+    private queueEvents: QueueEvents | null = null;
 
     constructor(
         @Inject('IExecutionStrategy')
         private readonly executionStrategy: IExecutionStrategy,
         private readonly prisma: PrismaService,
         @InjectQueue('code-execution') private executionQueue: Queue,
-    ) {
-        // Initialize QueueEvents to listen for job completion
-        // Note: In a production environment with multiple instances, 
-        // you might want to handle this differently or ensure connection reuse.
-        // For this setup, we'll create a new connection.
-        // We need to know the connection details. 
-        // Ideally, we should inject the connection or config, but QueueEvents 
-        // usually needs a connection object or connection options.
-        // Since we are using @nestjs/bullmq, the connection is managed.
-        // We can try to reuse the connection from the queue if possible, 
-        // or just let it use default redis options if they match.
-        
-        // However, to keep it simple and robust with the existing RedisModule setup in AppModule:
-        this.queueEvents = new QueueEvents('code-execution', {
-            connection: executionQueue.opts.connection
-        });
+    ) { }
+
+    private getQueueEvents(): QueueEvents {
+        if (!this.queueEvents) {
+            this.queueEvents = new QueueEvents('code-execution', {
+                connection: this.executionQueue.opts.connection
+            });
+        }
+        return this.queueEvents;
     }
 
     async runCode(language: string, code: string, stdin: string) {
@@ -41,7 +34,7 @@ export class CodeExecutionService {
 
         // Wait for the job to finish and return the result
         try {
-            const result = await job.waitUntilFinished(this.queueEvents);
+            const result = await job.waitUntilFinished(this.getQueueEvents());
             return result;
         } catch (error) {
             throw error;

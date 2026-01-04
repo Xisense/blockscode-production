@@ -18,6 +18,7 @@ import { OrganizationModule } from './modules/organization/organization.module';
 import { CourseModule } from './modules/course/course.module';
 
 import { CodeExecutionModule } from './modules/code-execution/code-execution.module';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
@@ -28,10 +29,56 @@ import { CodeExecutionModule } from './modules/code-execution/code-execution.mod
     }]),
     RedisModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        type: 'single',
-        url: `redis://${config.get('REDIS_HOST') || 'localhost'}:${config.get('REDIS_PORT') || 6379}`,
-      }),
+      useFactory: (config: ConfigService) => {
+        const redisUrl = config.get('REDIS_URL');
+        if (redisUrl) {
+          return {
+            type: 'single',
+            url: redisUrl,
+          };
+        }
+        return {
+          type: 'single',
+          url: `redis://${config.get('REDIS_HOST') || 'localhost'}:${config.get('REDIS_PORT') || 6379}`,
+        };
+      },
+      inject: [ConfigService],
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (config: ConfigService) => {
+        const redisUrl = config.get('REDIS_URL');
+        let connection: any = {
+          host: config.get('REDIS_HOST') || 'localhost',
+          port: config.get('REDIS_PORT') || 6379,
+        };
+
+        if (redisUrl) {
+          const url = new URL(redisUrl);
+          connection = {
+            host: url.hostname,
+            port: Number(url.port),
+            username: url.username,
+            password: url.password,
+            tls: url.protocol === 'rediss:' ? { rejectUnauthorized: false } : undefined,
+            maxRetriesPerRequest: null, // Required for BullMQ
+            enableReadyCheck: false,
+            family: 4, // Force IPv4 to avoid dual-stack DNS lookups
+          };
+        } else {
+            connection.maxRetriesPerRequest = null;
+            connection.enableReadyCheck = false;
+            connection.family = 4;
+        }
+
+        return {
+          connection,
+          defaultJobOptions: {
+            removeOnComplete: 10, // Keep only last 10 jobs to save storage
+            removeOnFail: 50,     // Keep last 50 failed jobs for debugging
+          },
+        };
+      },
       inject: [ConfigService],
     }),
     AuthModule,

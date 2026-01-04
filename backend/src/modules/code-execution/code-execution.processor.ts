@@ -7,7 +7,11 @@ import type { IExecutionStrategy } from './strategies/execution-strategy.interfa
     limiter: {
         max: 5,
         duration: 1000
-    }
+    },
+    // Optimize for serverless Redis (reduce command usage)
+    stalledInterval: 300000, // 5 minutes
+    maxStalledCount: 3,
+    lockDuration: 60000, // 60s
 })
 export class CodeExecutionProcessor extends WorkerHost {
     private readonly logger = new Logger(CodeExecutionProcessor.name);

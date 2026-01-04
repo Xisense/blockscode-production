@@ -29,7 +29,7 @@ export class MonitoringGateway
     @WebSocketServer()
     server: Server;
 
-    private activeConnections = new Map<string, string>(); // socketId -> userId (Secondary tracking)
+    private activeConnections = new Map<string, { userId: string; examId: string }>(); // socketId -> Metadata
 
     afterInit(server: Server) {
         console.log('Proctoring Gateway initialized');
@@ -40,8 +40,19 @@ export class MonitoringGateway
     }
 
     async handleDisconnect(client: Socket) {
-        this.activeConnections.delete(client.id);
-        console.log(`Client disconnected: ${client.id}`);
+        const meta = this.activeConnections.get(client.id);
+        if (meta) {
+            this.activeConnections.delete(client.id);
+            console.log(`Client disconnected: ${client.id} (User: ${meta.userId}, Exam: ${meta.examId})`);
+            
+            // Notify teachers immediately
+            this.server.to(`exam_${meta.examId}_monitor`).emit('student_status', {
+                userId: meta.userId,
+                online: false
+            });
+        } else {
+            console.log(`Client disconnected: ${client.id}`);
+        }
     }
 
     @SubscribeMessage('join_exam')
@@ -76,22 +87,22 @@ export class MonitoringGateway
 
             // JOIN the room for future displacement
             client.join(studentRoom);
-            this.activeConnections.set(client.id, data.userId);
+            this.activeConnections.set(client.id, { userId: data.userId, examId: data.examId });
 
             // 2. SET Redis ownership IMMEDIATELY
-            const identity = {
-                deviceId: data.deviceId,
-                tabId: data.tabId,
-                socketId: client.id,
-                joinedAt: Date.now()
-            };
+            // const identity = {
+            //     deviceId: data.deviceId,
+            //     tabId: data.tabId,
+            //     socketId: client.id,
+            //     joinedAt: Date.now()
+            // };
 
-            await this.redis.set(
-                `exam:${data.examId}:student:${data.userId}:online`,
-                JSON.stringify(identity),
-                'EX',
-                120
-            );
+            // await this.redis.set(
+            //     `exam:${data.examId}:student:${data.userId}:online`,
+            //     JSON.stringify(identity),
+            //     'EX',
+            //     120
+            // );
 
             // Notify teachers
             this.server.to(`${examRoom}_monitor`).emit('student_status', {
@@ -185,34 +196,19 @@ export class MonitoringGateway
             return { status: 'terminated' };
         }
 
-        // Optimizing Image Data Transmission
-        let imageReference = null;
-        if (data.details && typeof data.details === 'string' && data.details.length > 100) {
-            // It's likely a base64 image. Store in Redis to avoid socket bloat.
-            const imageKey = `violation_img:${data.examId}:${data.userId}:${Date.now()}`;
-            await this.redis.set(imageKey, data.details, 'EX', 3600); // Expire in 1 hour
-            imageReference = imageKey;
-
-            // Clean payload
-            data.details = imageReference;
-            console.log(`[Proctoring] Image stored in Redis: ${imageKey}`);
-        } else {
-            console.log(`[Proctoring] No image specific processing. Details len: ${data.details ? data.details.length : 0}`);
-        }
-
         this.server
             .to(`exam_${data.examId}_monitor`)
             .emit('live_violation', {
                 userId: data.userId,
                 type: data.type,
                 message: data.message,
-                details: imageReference || data.details, // Send Key or small text
+                details: data.details,
                 tabOuts: tabSwitchOutCount,
                 tabIns: tabSwitchInCount,
                 timestamp: new Date()
             });
 
-        console.log(`[Proctoring] Emitting live_violation to exam_${data.examId}_monitor:`, data.type, imageReference ? '(Redis Image)' : '(No Image)');
+        console.log(`[Proctoring] Emitting live_violation to exam_${data.examId}_monitor:`, data.type);
 
 
         return { status: 'recorded' };
@@ -235,81 +231,6 @@ export class MonitoringGateway
         return { status: 'requested' };
     }
 
-    @SubscribeMessage('get_violation_image')
-    async handleGetViolationImage(
-        @MessageBody() data: { imageKey: string },
-        @ConnectedSocket() client: Socket,
-    ) {
-        if (!data.imageKey) return { status: 'n/a' };
-        const imageData = await this.redis.get(data.imageKey);
-        return { status: 'ok', imageData };
-    }
-
-    @SubscribeMessage('heartbeat')
-    async handleHeartbeat(@MessageBody() data: { examId: string; userId: string; deviceId?: string; tabId?: string }, @ConnectedSocket() client: Socket) {
-        if (!data.examId || !data.userId) return { status: 'error' };
-
-        // Real-time Activity Check
-        const user = await this.prisma.user.findUnique({
-            where: { id: data.userId },
-            select: { isActive: true }
-        });
-
-        if (!user || user.isActive === false) {
-            client.emit('error', {
-                message: 'ACCOUNT_SUSPENDED'
-            });
-            client.disconnect(true);
-            return { status: 'suspended' };
-        }
-
-        // 1. Strict Ownership Check in Redis
-        const presenceRaw = await this.redis.get(`exam:${data.examId}:student:${data.userId}:online`);
-        if (presenceRaw) {
-            try {
-                const presence = JSON.parse(presenceRaw);
-
-                // If another socket is registered as owner, THIS socket must die
-                if (presence.socketId && presence.socketId !== client.id) {
-                    console.warn(`[Heartbeat] Kicking obsolete socket ${client.id} for user ${data.userId}. New owner is ${presence.socketId}`);
-                    client.emit('error', {
-                        message: 'Another instance of this exam is active. This session is now inactive.'
-                    });
-                    client.disconnect(true);
-                    this.activeConnections.delete(client.id);
-                    return { status: 'kicked' };
-                }
-
-                // Identity check fallback
-                if (data.deviceId !== presence.deviceId || data.tabId !== presence.tabId) {
-                    console.warn(`[Heartbeat] Identity mismatch for socket ${client.id}. Kicking.`);
-                    client.emit('error', { message: 'Session identity mismatch. Please log in again.' });
-                    client.disconnect(true);
-                    this.activeConnections.delete(client.id);
-                    return { status: 'kicked' };
-                }
-            } catch (e) {
-                console.error("[Heartbeat] Parse error", e);
-            }
-        }
-
-        // 2. Refresh Ownership
-        const identity = {
-            deviceId: data.deviceId,
-            tabId: data.tabId,
-            socketId: client.id,
-            timestamp: Date.now()
-        };
-        await this.redis.set(
-            `exam:${data.examId}:student:${data.userId}:online`,
-            JSON.stringify(identity),
-            'EX',
-            120
-        );
-
-        return { status: 'ok' };
-    }
-
     async forceTerminate(examId: string, userId: string) {
         // 1. Broadcast error to student rooms
         const studentRoom = `student_${userId}_exam_${examId}`;
@@ -324,9 +245,9 @@ export class MonitoringGateway
         }
 
         // 3. Clear Redis
-        await this.redis.del(`exam:${examId}:student:${userId}:online`);
-        this.activeConnections.forEach((uid, sid) => {
-            if (uid === userId) this.activeConnections.delete(sid);
+        // await this.redis.del(`exam:${examId}:student:${userId}:online`);
+        this.activeConnections.forEach((meta, sid) => {
+            if (meta.userId === userId) this.activeConnections.delete(sid);
         });
     }
 }

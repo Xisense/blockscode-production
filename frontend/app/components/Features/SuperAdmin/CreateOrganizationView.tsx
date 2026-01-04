@@ -9,7 +9,29 @@ import { SuperAdminService } from "@/services/api/SuperAdminService";
 export default function CreateOrganizationView() {
     const router = useRouter();
     const [isSaving, setIsSaving] = useState(false);
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<{
+        name: string;
+        subdomain: string;
+        adminName: string;
+        adminEmail: string;
+        adminPassword: string;
+        phone: string;
+        supportEmail: string;
+        address: string;
+        city: string;
+        country: string;
+        plan: string;
+        maxUsers: string;
+        maxStorage: string;
+        canCreateExams: boolean;
+        allowAppExams: boolean;
+        allowAIProctoring: boolean;
+        canCreateCourses: boolean;
+        allowCourseTests: boolean;
+        canManageUsers: boolean;
+        primaryColor: string;
+        logo: string | File; // Allow File object
+    }>({
         // Identity
         name: "",
         subdomain: "",
@@ -255,18 +277,21 @@ export default function CreateOrganizationView() {
                                             onChange={(e) => {
                                                 const file = e.target.files?.[0];
                                                 if (file) {
-                                                    const reader = new FileReader();
-                                                    reader.onloadend = () => {
-                                                        setFormData({ ...formData, logo: reader.result as string });
-                                                    };
-                                                    reader.readAsDataURL(file);
+                                                    // Store the File object directly for upload
+                                                    setFormData({ ...formData, logo: file });
                                                 }
                                             }}
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                         />
                                         <div className={`flex items-center gap-4 p-4 border-2 border-dashed ${formData.logo ? 'border-[var(--brand)] bg-[var(--brand-light)]/10' : 'border-slate-100 bg-slate-50/50'} rounded-3xl hover:bg-slate-50 transition-all cursor-pointer`}>
                                             <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-slate-300 group-hover:text-[var(--brand)] shadow-sm transition-all overflow-hidden">
-                                                {formData.logo ? <img src={formData.logo} alt="Preview" className="w-full h-full object-contain" /> : <Camera size={24} />}
+                                                {formData.logo ? (
+                                                    typeof formData.logo === 'string' ? (
+                                                        <img src={formData.logo} alt="Preview" className="w-full h-full object-contain" />
+                                                    ) : (
+                                                        <img src={URL.createObjectURL(formData.logo)} alt="Preview" className="w-full h-full object-contain" />
+                                                    )
+                                                ) : <Camera size={24} />}
                                             </div>
                                             <div>
                                                 <p className="text-[11px] font-black text-slate-800 uppercase tracking-widest">{formData.logo ? 'Change Logo' : 'Upload Logo'}</p>

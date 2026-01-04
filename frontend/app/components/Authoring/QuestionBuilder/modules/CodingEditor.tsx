@@ -4,18 +4,12 @@ import { Plus, Trash2, Code, FileCode, CheckCircle2, FlaskConical, Layout, Eye, 
 import { Question } from '../../types';
 import CodeMirrorEditor from '../../CodeMirrorEditor';
 import { useToast } from '../../../Common/Toast';
+import { PLAYGROUND_LANGUAGES } from '../../../Editor/playgroundLanguages';
 
 interface CodingEditorProps {
     question: Question;
     onChange: (updates: Partial<Question>) => void;
 }
-
-const SUPPORTED_LANGUAGES = [
-    { id: 'javascript', label: 'JavaScript' },
-    { id: 'python', label: 'Python 3' },
-    { id: 'java', label: 'Java 17' },
-    { id: 'cpp', label: 'C++ 20' }
-];
 
 interface Template {
     head: string;
@@ -96,7 +90,13 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
             }
         } else {
             // Add default template
-            newTemplates[langId] = { head: '', body: '', tail: '', solution: '' };
+            const langConfig = PLAYGROUND_LANGUAGES.find(l => l.id === langId);
+            newTemplates[langId] = { 
+                head: langConfig?.header || '', 
+                body: langConfig?.initialBody || '', 
+                tail: langConfig?.footer || '', 
+                solution: '' 
+            };
             setActiveLang(langId);
         }
         updateConfig({ templates: newTemplates });
@@ -149,19 +149,42 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Supported Languages</label>
-                    <div className="flex gap-2">
-                        {SUPPORTED_LANGUAGES.map(lang => {
-                            const isEnabled = !!config.templates[lang.id];
+                    <div className="flex gap-2 items-center flex-wrap justify-end">
+                        {Object.keys(config.templates).map(langId => {
+                            const lang = PLAYGROUND_LANGUAGES.find(l => l.id === langId);
+                            if (!lang) return null;
                             return (
-                                <button
-                                    key={lang.id}
-                                    onClick={() => toggleLanguageSupport(lang.id)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isEnabled ? 'bg-[var(--brand-light)] border-[var(--brand-light)] text-[var(--brand-dark)]' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
-                                >
-                                    {lang.label}
-                                </button>
+                                <div key={langId} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--brand-light)] border border-[var(--brand-light)] text-[var(--brand-dark)]">
+                                    <span>{lang.label}</span>
+                                    <button onClick={() => toggleLanguageSupport(langId)} className="hover:text-red-500 transition-colors">
+                                        <Trash2 size={12} />
+                                    </button>
+                                </div>
                             );
                         })}
+                        
+                        <div className="relative">
+                            <select
+                                className="appearance-none pl-3 pr-8 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 outline-none cursor-pointer transition-all focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/10"
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        toggleLanguageSupport(e.target.value);
+                                        e.target.value = "";
+                                    }
+                                }}
+                                value=""
+                            >
+                                <option value="" disabled>+ Add Language</option>
+                                {PLAYGROUND_LANGUAGES
+                                    .filter(lang => !config.templates[lang.id])
+                                    .sort((a, b) => a.label.localeCompare(b.label))
+                                    .map(lang => (
+                                        <option key={lang.id} value={lang.id}>{lang.label}</option>
+                                    ))
+                                }
+                            </select>
+                            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
                     </div>
                 </div>
 
@@ -178,7 +201,7 @@ export default function CodingEditor({ question, onChange }: CodingEditorProps) 
                                     className="appearance-none pl-4 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/10 transition-all cursor-pointer shadow-sm"
                                 >
                                     {Object.keys(config.templates).map(langSlug => {
-                                        const langInfo = SUPPORTED_LANGUAGES.find(l => l.id === langSlug);
+                                        const langInfo = PLAYGROUND_LANGUAGES.find(l => l.id === langSlug);
                                         return (
                                             <option key={langSlug} value={langSlug}>
                                                 {langInfo?.label || langSlug}

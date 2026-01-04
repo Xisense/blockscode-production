@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import CodeEditor from './Editor/CodeEditor';
-import { SUPPORTED_LANGUAGES } from './Editor/languages';
+import { PLAYGROUND_LANGUAGES } from './Editor/playgroundLanguages';
 import { CodeExecutionService } from '@/services/api/CodeExecutionService';
 import { UnitQuestion } from '@/types/unit';
 
@@ -48,11 +48,11 @@ export default function CodingQuestionRenderer({
     const allowedLangs = question.codingConfig?.allowedLanguages || Object.keys(codingTemplates) || [];
 
     // Determine selected language (state kept in selectedCodingLang)
-    const activeLangId = selectedCodingLang || (question.codingConfig?.languageId) || (allowedLangs.length ? allowedLangs[0] : SUPPORTED_LANGUAGES[0].id);
+    const activeLangId = selectedCodingLang || (question.codingConfig?.languageId) || (allowedLangs.length ? allowedLangs[0] : PLAYGROUND_LANGUAGES[0].id);
     const template = (codingTemplates as any)[activeLangId] || {};
 
     // Find base language config and overlay template head/body/footer
-    const baseLang = SUPPORTED_LANGUAGES.find(l => l.id === activeLangId) || SUPPORTED_LANGUAGES[0];
+    const baseLang = PLAYGROUND_LANGUAGES.find(l => l.id === activeLangId) || PLAYGROUND_LANGUAGES[0];
 
     // Persistence Logic
     const [mounted, setMounted] = useState(false);
@@ -158,8 +158,8 @@ export default function CodingQuestionRenderer({
                 onChange={(e) => onLanguageChange(e.target.value)}
                 className="bg-[#f8f9fa] border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-600 outline-none hover:border-slate-300 transition-colors"
             >
-                {((allowedLangs && allowedLangs.length > 0) ? allowedLangs : SUPPORTED_LANGUAGES.map(l => l.id)).map((lid: string) => {
-                    const opt = SUPPORTED_LANGUAGES.find(s => s.id === lid) || { id: lid, label: lid } as any;
+                {((allowedLangs && allowedLangs.length > 0) ? allowedLangs : PLAYGROUND_LANGUAGES.map(l => l.id)).map((lid: string) => {
+                    const opt = PLAYGROUND_LANGUAGES.find(s => s.id === lid) || { id: lid, label: lid } as any;
                     return <option key={lid} value={lid}>{opt.label || lid}</option>;
                 })}
             </select>

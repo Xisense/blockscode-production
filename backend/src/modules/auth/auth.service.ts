@@ -4,6 +4,7 @@ import { Redis } from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { MailService } from '../../services/mail.service';
+import { StorageService } from '../../services/storage/storage.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -12,7 +13,8 @@ export class AuthService {
         private prisma: PrismaService,
         private jwtService: JwtService,
         @InjectRedis() private readonly redis: Redis,
-        private mailService: MailService
+        private mailService: MailService,
+        private storageService: StorageService
     ) { }
 
     async validateUser(email: string, pass: string): Promise<any> {
@@ -160,12 +162,6 @@ export class AuthService {
             }
         }
 
-        // Check for active presence in Redis - INFORMATIVE ONLY (Takeover will happen in Gateway)
-        const isOnline = await this.redis.get(`exam:${exam.id}:student:${user.id}:online`);
-        // if (isOnline) {
-        //     throw new ConflictException('EXAM_ALREADY_ACTIVE');
-        // }
-
         if (password && !(await bcrypt.compare(password, user.password))) {
             throw new UnauthorizedException('Invalid password');
         }
@@ -181,18 +177,20 @@ export class AuthService {
         };
     }
 
-    async updateProfile(userId: string, data: { name?: string }) {
+    async updateProfile(userId: string, data: { name?: string; profilePicture?: string }) {
         return this.prisma.user.update({
             where: { id: userId },
             data: {
-                name: data.name
+                name: data.name,
+                profilePicture: data.profilePicture
             },
             select: {
                 id: true,
                 name: true,
                 email: true,
                 role: true,
-                rollNumber: true
+                rollNumber: true,
+                profilePicture: true
             }
         });
     }

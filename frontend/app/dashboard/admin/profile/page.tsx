@@ -14,6 +14,7 @@ export default function AdminProfilePage() {
     const { toast } = useToast();
     const router = useRouter();
     const [avatar, setAvatar] = useState<string | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [currentPass, setCurrentPass] = useState("");
@@ -25,6 +26,7 @@ export default function AdminProfilePage() {
         if (user) {
             setUserData(user);
             setName(user.name || "");
+            if (user.profilePicture) setAvatar(user.profilePicture);
             if (user.mustChangePassword) {
                 setActiveTab('security');
             }
@@ -36,7 +38,10 @@ export default function AdminProfilePage() {
         if (!name.trim()) return;
         setSaving(true);
         try {
-            const updated = await AuthService.updateProfile({ name });
+            const updated = await AuthService.updateProfile({ 
+                name,
+                profilePicture: selectedFile || undefined
+            });
             setUserData(updated);
             toast("Administrative profile updated.", "success", "Updated");
         } catch (error: any) {
@@ -85,6 +90,7 @@ export default function AdminProfilePage() {
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
+            setSelectedFile(file);
             const url = URL.createObjectURL(file);
             setAvatar(url);
         }

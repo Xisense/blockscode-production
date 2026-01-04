@@ -97,15 +97,19 @@ export const AuthService = {
         return res.json();
     },
 
-    async updateProfile(data: { name: string }): Promise<any> {
+    async updateProfile(data: { name?: string; profilePicture?: File }): Promise<any> {
         const token = this.getToken();
+        const formData = new FormData();
+        
+        if (data.name) formData.append('name', data.name);
+        if (data.profilePicture) formData.append('profilePicture', data.profilePicture);
+
         const res = await fetch(`${BASE_URL}/auth/profile`, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify(data)
+            body: formData
         });
 
         if (!res.ok) {

@@ -9,16 +9,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 @Module({
     imports: [
         PrismaModule,
-        BullModule.forRootAsync({
-            imports: [ConfigModule],
-            useFactory: async (config: ConfigService) => ({
-                connection: {
-                    host: config.get('REDIS_HOST') || 'localhost',
-                    port: config.get('REDIS_PORT') || 6379,
-                },
-            }),
-            inject: [ConfigService],
-        }),
         BullModule.registerQueue({
             name: 'submission_queue',
         }),

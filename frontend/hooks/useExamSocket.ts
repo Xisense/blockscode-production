@@ -104,24 +104,6 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
         };
     }, [examId, userId, toastError, identity]);
 
-    // Heartbeat Loop (Fast feedback)
-    useEffect(() => {
-        if (!examId || !userId || isKicked.current) return;
-
-        const interval = setInterval(() => {
-            if (socketRef.current?.connected && !isKicked.current) {
-                socketRef.current.emit('heartbeat', {
-                    examId,
-                    userId,
-                    deviceId: identity.deviceId,
-                    tabId: identity.tabId
-                });
-            }
-        }, 5000); // Heartbeat every 5s
-
-        return () => clearInterval(interval);
-    }, [examId, userId, identity]);
-
     const saveAnswer = useCallback((questionId: string, answer: any) => {
         if (!isKicked.current && socketRef.current?.connected && sessionId) {
             socketRef.current.emit('save_answer', { sessionId, answer: { [questionId]: answer } });

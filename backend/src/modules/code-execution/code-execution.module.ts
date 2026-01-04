@@ -6,6 +6,7 @@ import { HttpModule } from '@nestjs/axios';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { BullModule } from '@nestjs/bullmq';
 import { CodeExecutionProcessor } from './code-execution.processor';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
     imports: [

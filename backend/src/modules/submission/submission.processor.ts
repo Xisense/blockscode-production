@@ -2,7 +2,12 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../services/prisma/prisma.service';
 
-@Processor('submission_queue')
+@Processor('submission_queue', {
+    // Optimize for serverless Redis (reduce command usage)
+    stalledInterval: 300000, // 5 minutes
+    maxStalledCount: 3,
+    lockDuration: 60000, // 60s
+})
 export class SubmissionProcessor extends WorkerHost {
     constructor(private prisma: PrismaService) {
         super();

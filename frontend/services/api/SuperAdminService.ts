@@ -52,10 +52,22 @@ export const SuperAdminService = {
 
     async createOrganization(data: any) {
         try {
+            const headers = getHeaders();
+            // Remove Content-Type to let browser set it with boundary for FormData
+            // @ts-ignore
+            delete headers['Content-Type'];
+
+            const formData = new FormData();
+            Object.keys(data).forEach(key => {
+                if (data[key] !== undefined && data[key] !== null) {
+                    formData.append(key, data[key]);
+                }
+            });
+
             const res = await fetch(`${BASE_URL}/super-admin/organizations`, {
                 method: 'POST',
-                headers: getHeaders(),
-                body: JSON.stringify(data)
+                headers: headers as any,
+                body: formData
             });
             if (!res.ok) throw new Error('Failed to create organization');
             return await res.json();
