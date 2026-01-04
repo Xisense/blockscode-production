@@ -1,6 +1,6 @@
 import { Extension } from "@codemirror/state";
 
-export type LanguageID = "javascript" | "python" | "java" | "cpp" | "c" | "python-notebook";
+export type LanguageID = "javascript" | "typescript" | "python" | "java" | "cpp" | "c" | "python-notebook" | "go" | "rust" | "php" | "ruby" | "swift" | "kotlin" | "scala" | "r" | "perl" | "lua" | "bash" | "sql" | "csharp" | "dart" | "haskell" | "julia" | "crystal" | "pascal" | "clojure" | "cobol" | "d" | "erlang" | "fortran" | "groovy" | "ocaml" | "powershell";
 
 export interface LanguageConfig {
     id: LanguageID;
