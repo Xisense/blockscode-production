@@ -36,6 +36,7 @@ export default function SplitPane({
             setLeftWidth(newLeftWidth);
         }
     };
+    
 
     useEffect(() => {
         if (isResizing) {
