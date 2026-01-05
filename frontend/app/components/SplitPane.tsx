@@ -37,7 +37,6 @@ export default function SplitPane({
         }
     };
 
-
     useEffect(() => {
         if (isResizing) {
             document.addEventListener("mousemove", handleMouseMove);
