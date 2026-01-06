@@ -139,38 +139,36 @@ export class CodeExecutionService {
         }
 
         // 2. Execute against each test case
-        // Use sequential execution to avoid rate limiting on public API
-        const results = [];
-        for (const testCase of testCases) {
+        // Use parallel execution to minimize latency
+        const results = await Promise.all(testCases.map(async (testCase) => {
             const input = testCase.input || '';
             const expectedOutput = (testCase.expectedOutput || testCase.output || '').trim();
             const isPublic = testCase.isPublic !== false; // Default to true if undefined, unless explicitly false
 
             try {
-                // Use the queue-backed runCode method to respect rate limits
+                // Use the queue-backed runCode method
                 const executionResult = await this.runCode(language, code, input);
 
                 // Clean undefined or null outputs
                 const actualOutput = (executionResult.stdout || '').trim();
-
                 const errorOutput = (executionResult.stderr || '').trim();
 
                 // Pass only if actual matches expected AND there are no errors
                 const hasError = errorOutput.length > 0 || (executionResult.code !== 0 && executionResult.code !== null);
                 const passed = !hasError && actualOutput === expectedOutput;
 
-                results.push({
+                return {
                     input: isPublic ? input : null,
                     expectedOutput: isPublic ? expectedOutput : null,
                     actualOutput: isPublic ? actualOutput : null,
                     passed: passed,
                     status: passed ? 'Passed' : 'Failed',
-                    isPublic: isPublic,
+                    isPublic: isPublic, // Keep track of visibility
                     error: isPublic ? (errorOutput || null) : null
-                });
+                };
             } catch (err: any) {
                 console.error(`Test case execution failed: ${err.message}`);
-                results.push({
+                return {
                     input: isPublic ? input : null,
                     expectedOutput: isPublic ? expectedOutput : null,
                     actualOutput: null,
@@ -178,9 +176,9 @@ export class CodeExecutionService {
                     status: 'Error',
                     isPublic: isPublic,
                     error: 'Execution failed: ' + (err.message || 'Unknown error')
-                });
+                };
             }
-        }
+        }));
 
         const passedCount = results.filter(r => r.passed).length;
 

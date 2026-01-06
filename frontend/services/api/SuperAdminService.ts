@@ -113,9 +113,15 @@ export const SuperAdminService = {
         }
     },
 
-    async getUsers() {
+    async getUsers(page = 1, limit = 10, search = '') {
         try {
-            const res = await fetch(`${BASE_URL}/super-admin/users`, {
+            const query = new URLSearchParams({
+                page: page.toString(),
+                limit: limit.toString(),
+                search
+            }).toString();
+
+            const res = await fetch(`${BASE_URL}/super-admin/users?${query}`, {
                 headers: getHeaders()
             });
             if (!res.ok) throw new Error('Failed to fetch users');

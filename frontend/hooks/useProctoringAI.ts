@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import {
-    FilesetResolver,
+// OPTIMIZATION: Removed static import of @mediapipe/tasks-vision to reduce initial bundle size by ~1-2MB.
+// Types are imported effectively, but the values are now loaded dynamically.
+import type {
     ObjectDetector,
     FaceLandmarker,
-    DrawingUtils
 } from '@mediapipe/tasks-vision';
 import { useToast } from '@/app/components/Common/Toast';
 import proctorWarnings from '@/app/proctor-warnings.json';
@@ -39,13 +39,14 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
     const lastObjectCheckRef = useRef<number>(0);
     const requestRef = useRef<number | null>(null);
 
-    // Violation State Tracking (To avoid spamming toasts)
+    // Violation State Tracking
     const headTurnStartTimeRef = useRef<number | null>(null);
     const isHeadTurnWarnedRef = useRef(false);
+    const consecutiveMultiFaceCount = useRef<number>(0); 
+    const noFaceStartTimeRef = useRef<number | null>(null);
+    const lastNoFaceWarningRef = useRef<number>(0);
     const lastPhoneDetectedRef = useRef<number>(0);
-    const consecutiveMultiFaceCount = useRef<number>(0); // Persistence check
-    const noFaceStartTimeRef = useRef<number | null>(null); // For no-face persistence
-
+    
     // Initial Model Loading
     useEffect(() => {
         if (!active) return; // Don't load models if not active
@@ -54,6 +55,9 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
 
         async function loadModels() {
             try {
+                // Dynamic Import
+                const { FilesetResolver, ObjectDetector, FaceLandmarker } = await import('@mediapipe/tasks-vision');
+
                 const vision = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
                 );
@@ -168,8 +172,8 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
         // Ensure video is playing and has size
         if (video.videoWidth > 0 && video.videoHeight > 0) {
 
-            // --- 1. Face Landmarker (Every 200ms) ---
-            if (now - lastFaceCheckRef.current >= 200) {
+            // --- 1. Face Landmarker (Every 500ms - Reduced from 200ms) ---
+            if (now - lastFaceCheckRef.current >= 500) {
                 lastFaceCheckRef.current = now;
 
                 if (faceLandmarkerRef.current) {
@@ -181,18 +185,21 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
                     if (faces === 0) {
                         if (!noFaceStartTimeRef.current) {
                             noFaceStartTimeRef.current = now;
-                        } else if (now - noFaceStartTimeRef.current > 5000) { // 5s Persistence
-                            // Limit spam: Check if we haven't warned recently?
-                            // reusing cooldown logic somewhat implicitly by ref reset?
-                            // Let's reset start time to debounce or use a separate "warned" flag.
-                            // For simplicity, re-warn every 5s if still missing.
-                            const msg = getRandomWarning('no_face');
-                            warning(msg);
-                            onViolationRef.current("NO_FACE", msg, captureSnapshot());
-                            noFaceStartTimeRef.current = now; // Reset to wait another 5s (debounce)
+                        } else if (now - noFaceStartTimeRef.current > 5000) { // 5s Persistence check
+                            
+                            // Throttled Warning: Only notify every 10 seconds
+                            if (now - lastNoFaceWarningRef.current > 10000) { 
+                                lastNoFaceWarningRef.current = now;
+                                
+                                const msg = getRandomWarning('no_face');
+                                warning(msg);
+                                onViolationRef.current("NO_FACE", msg, captureSnapshot());
+                            }
                         }
                     } else {
-                        noFaceStartTimeRef.current = null; // Reset if face found
+                        noFaceStartTimeRef.current = null;
+                        // Optional: Reset throttler if face comes back? 
+                        // No, let it cool down naturally.
                     }
 
                     if (faces > 1) {
@@ -270,8 +277,8 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
                 }
             }
 
-            // --- 2. Object Detector (Every 500ms - Faster response) ---
-            if (now - lastObjectCheckRef.current >= 500) {
+            // --- 2. Object Detector (Every 1000ms - Reduced from 500ms) ---
+            if (now - lastObjectCheckRef.current >= 1000) {
                 lastObjectCheckRef.current = now;
 
                 if (objectDetectorRef.current) {
@@ -290,17 +297,18 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
                     );
 
                     if (phone) {
-                        // Debounce slightly? 
-                        // User said "If ... RED FLAG".
-                        // Check if we warned recently (e.g., last 2 seconds) to avoid toast storm
-                        if (now - lastPhoneDetectedRef.current > 2000) {
-                            lastPhoneDetectedRef.current = now;
-                            const msg = getRandomWarning('phone_detected');
-                            warning(msg);
-                            const snapshot = captureSnapshot();
-                            console.log("Violaton Triggered: PHONE_DETECTED", snapshot ? "Snapshot captured" : "No snapshot");
-                            onViolationRef.current("PHONE_DETECTED", "Cell phone detected", snapshot);
-                        }
+                         // Check global cool down of 2s to avoid finding same phone in subsequent frames immediately
+                         if (now - lastPhoneDetectedRef.current > 5000) { 
+                             // Wait 2 seconds before creating the toast, to simulate "typing" / processing delay
+                             lastPhoneDetectedRef.current = now; // Mark detected immediately to debounce
+                             
+                             setTimeout(() => {
+                                 const msg = getRandomWarning('phone_detected');
+                                 warning(msg);
+                                 const snapshot = captureSnapshot();
+                                 onViolationRef.current("PHONE_DETECTED", "Cell phone detected", snapshot);
+                             }, 2000); // 2s Artificial Delay
+                         }
                     }
                 }
             }

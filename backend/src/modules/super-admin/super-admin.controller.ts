@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, UseGuards, Param, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, UseGuards, Param, Req, Query } from '@nestjs/common';
 import { SuperAdminService } from './super-admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -74,8 +74,12 @@ export class SuperAdminController {
     }
 
     @Get('users')
-    async getUsers() {
-        return this.superAdminService.getUsers();
+    async getUsers(
+        @Query('page') page: string = '1',
+        @Query('limit') limit: string = '10',
+        @Query('search') search: string = ''
+    ) {
+        return this.superAdminService.getUsers(Number(page), Number(limit), search);
     }
 
     @Put('users/:id')

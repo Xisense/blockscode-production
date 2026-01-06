@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, BadRequestException, Query } from '@nestjs/common';
 import { TeacherService } from './teacher.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrgFeaturesGuard } from '../auth/guards/org-features.guard';
@@ -161,8 +161,14 @@ export class TeacherController {
     }
 
     @Get('exams/:examId/results')
-    async getExamResults(@Param('examId') examId: string, @User() user: any) {
-        return this.teacherService.getExamResults(examId, user);
+    async getExamResults(
+        @Param('examId') examId: string,
+        @User() user: any,
+        @Query('page') page: string = '1',
+        @Query('limit') limit: string = '50',
+        @Query('search') search: string = ''
+    ) {
+        return this.teacherService.getExamResults(examId, user, Number(page), Number(limit), search);
     }
 
     @Put('exams/:examId/submissions/:sessionId/score')

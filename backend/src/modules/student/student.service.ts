@@ -40,34 +40,28 @@ export class StudentService {
     }
 
     private async calculateDailyStreak(userId: string): Promise<number> {
-        // Get all exam sessions and unit submissions ordered by date
-        const [sessions, unitSubmissions] = await Promise.all([
-            this.prisma.examSession.findMany({
-                where: { userId, status: 'COMPLETED' },
-                orderBy: { createdAt: 'desc' },
-                select: { createdAt: true }
-            }),
-            this.prisma.unitSubmission.findMany({
-                where: { userId }, // Count any submission as activity
-                orderBy: { createdAt: 'desc' },
-                select: { createdAt: true }
-            })
-        ]);
+        // OPTIMIZATION: Use Raw SQL to get distinct activity dates instead of fetching all records
+        const activities: { dayString: Date }[] = await this.prisma.$queryRaw`
+            SELECT DISTINCT DATE("createdAt") as "dayString"
+            FROM (
+                SELECT "createdAt" FROM "ExamSession" WHERE "userId" = ${userId} AND "status" = 'COMPLETED'
+                UNION ALL
+                SELECT "createdAt" FROM "UnitSubmission" WHERE "userId" = ${userId}
+            ) as activity
+            ORDER BY "dayString" DESC
+            LIMIT 365
+        `;
 
-        // Combine and sort all activity dates
-        const allActivities = [
-            ...sessions.map(s => s.createdAt),
-            ...unitSubmissions.map(u => u.createdAt)
-        ].sort((a, b) => b.getTime() - a.getTime());
-
-        if (allActivities.length === 0) return 0;
+        if (activities.length === 0) return 0;
 
         let streak = 0;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         // Check if there's activity today or yesterday
-        const lastActivityDate = new Date(allActivities[0]);
+        // Note: Raw query dates might be strings or Date objects depending on driver. 
+        // Prisma usually returns Date objects for 'date' type if mapped correctly, but let's be safe.
+        const lastActivityDate = new Date(activities[0].dayString);
         lastActivityDate.setHours(0, 0, 0, 0);
 
         const daysDiff = Math.floor((today.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -75,12 +69,11 @@ export class StudentService {
         // Streak is broken if last activity was more than 1 day ago
         if (daysDiff > 1) return 0;
 
-        // Count consecutive days
         const activityDates = new Set(
-            allActivities.map((d: Date) => {
-                const date = new Date(d);
-                date.setHours(0, 0, 0, 0);
-                return date.getTime();
+            activities.map((a: any) => {
+                const d = new Date(a.dayString);
+                d.setHours(0, 0, 0, 0);
+                return d.getTime();
             })
         );
 

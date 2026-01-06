@@ -6,6 +6,7 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { AuthService } from "@/services/api/AuthService";
 import { useOrganization } from "../context/OrganizationContext";
+import { loginAction } from "@/actions/auth";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -32,8 +33,23 @@ export default function LoginPage() {
         setIsLoading(true);
         setError("");
         try {
-            const data = await AuthService.login(email, password);
-            const user = data.user;
+            // Use Server Action instead of client-side service
+            const result = await loginAction(email, password);
+            
+            if (!result.success) {
+                throw new Error(result.error);
+            }
+
+            const user = result.user;
+            
+            // Store token for client-side API calls
+            if (result.access_token) {
+                localStorage.setItem('auth_token', result.access_token);
+            }
+            
+            // Store user details for UI context
+            localStorage.setItem('user', JSON.stringify(user));
+
             const rolePath = user.role.toLowerCase().replace('_', '-');
 
             if (user.mustChangePassword) {

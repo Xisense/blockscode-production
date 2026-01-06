@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import Navbar from "@/app/components/Navbar";
-import { Search, Globe, Shield, Filter, Mail, Ban, CheckCircle2, MoreVertical, Building2, Users, UserCog, Trash2, Power } from "lucide-react";
+import { Search, Globe, Shield, Filter, Mail, Ban, CheckCircle2, MoreVertical, Building2, Users, UserCog, Trash2, Power, ChevronLeft, ChevronRight } from "lucide-react";
 import { SuperAdminService } from "@/services/api/SuperAdminService";
 import Loading from "@/app/loading";
 import { useToast } from "@/app/components/Common/Toast";
@@ -16,6 +16,11 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function SuperAdminUsersPage() {
     const [searchQuery, setSearchQuery] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalUsers, setTotalUsers] = useState(0);
+
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -24,10 +29,28 @@ export default function SuperAdminUsersPage() {
     // Delete Modal State
     const [userToDelete, setUserToDelete] = useState<any | null>(null);
 
+    // Debounce Search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchQuery);
+            setPage(1);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
     const fetchUsers = async () => {
+        setLoading(true);
         try {
-            const data = await SuperAdminService.getUsers();
-            setUsers(data);
+            const response = await SuperAdminService.getUsers(page, 10, debouncedSearch);
+            // Handle response format change: { data: [], total: 100, ... }
+            if (response.data) {
+                setUsers(response.data);
+                setTotalPages(response.totalPages);
+                setTotalUsers(response.total);
+            } else {
+                 // Fallback
+                setUsers(response); 
+            }
         } catch (error) {
             console.error("Failed to fetch users", error);
             toastError("Unable to retrieve global user index.");
@@ -38,7 +61,7 @@ export default function SuperAdminUsersPage() {
 
     useEffect(() => {
         fetchUsers();
-    }, []);
+    }, [page, debouncedSearch]);
 
     const handleToggleStatus = async (user: any) => {
         setActionLoading(user.id);
@@ -71,11 +94,8 @@ export default function SuperAdminUsersPage() {
         }
     };
 
-    const filteredUsers = users.filter(u =>
-        u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (u.organization?.name && u.organization.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    // Removed client-side filtering
+    // const filteredUsers = ...
 
     if (loading && users.length === 0) return <Loading />;
 
@@ -93,7 +113,7 @@ export default function SuperAdminUsersPage() {
                         <Users size={20} className="text-[var(--brand)]" />
                         <div>
                             <p className="text-[10px] font-black uppercase text-slate-300 leading-none mb-1">Total Users</p>
-                            <p className="text-lg font-black text-slate-800 leading-none">{users.length}</p>
+                            <p className="text-lg font-black text-slate-800 leading-none">{totalUsers}</p>
                         </div>
                     </div>
                 </div>
@@ -126,7 +146,7 @@ export default function SuperAdminUsersPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {filteredUsers.map((u) => (
+                                {users.map((u) => (
                                     <tr key={u.id} className="hover:bg-slate-50/30 transition-all group">
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-4">
@@ -184,7 +204,7 @@ export default function SuperAdminUsersPage() {
                     </div>
                 </div>
 
-                {filteredUsers.length === 0 && !loading && (
+                {users.length === 0 && !loading && (
                     <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border border-slate-100 mt-4">
                         <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mb-6">
                             <Search size={32} className="text-slate-200" />
@@ -195,6 +215,29 @@ export default function SuperAdminUsersPage() {
                         </p>
                     </div>
                 )}
+                
+                {/* Pagination */}
+                <div className="flex items-center justify-between mt-6">
+                    <p className="text-xs font-bold text-slate-400">
+                        Page {page} of {totalPages}
+                    </p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="p-2 rounded-xl bg-white border border-slate-100 disabled:opacity-50 hover:bg-slate-50 transition-colors"
+                        >
+                            <ChevronLeft size={16} className="text-slate-600" />
+                        </button>
+                        <button
+                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="p-2 rounded-xl bg-white border border-slate-100 disabled:opacity-50 hover:bg-slate-50 transition-colors"
+                        >
+                            <ChevronRight size={16} className="text-slate-600" />
+                        </button>
+                    </div>
+                </div>
             </main>
 
             <AlertModal

@@ -1,26 +1,41 @@
-"use client";
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Navbar from "@/app/components/Navbar";
-import { AdminService } from "@/services/api/AdminService";
 import { TrendingUp, Users, BookOpen, Activity } from "lucide-react";
-import Loading from "@/app/loading";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-export default function AdminAnalyticsPage() {
-    const [analytics, setAnalytics] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
+// Server Component Data Fetching
+async function getAnalyticsData() {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('auth_token')?.value;
 
-    useEffect(() => {
-        async function load() {
-            try {
-                const data = await AdminService.getAnalytics();
-                setAnalytics(data);
-            } catch (e) { console.error(e); }
-            finally { setLoading(false); }
-        }
-        load();
-    }, []);
+    if (!token) return null;
 
-    if (loading) return <Loading />;
+    const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+    try {
+        const res = await fetch(`${BASE_URL}/admin/stats`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            cache: 'no-store' // Ensure fresh data on every request
+        });
+        
+        if (!res.ok) return null;
+        return res.json();
+    } catch (e) {
+        console.error("Failed to fetch analytics", e);
+        return null;
+    }
+}
+
+export default async function AdminAnalyticsPage() {
+    const analytics = await getAnalyticsData();
+
+    if (!analytics) {
+        // Fallback or redirect if session invalid
+        // redirect('/login'); // Optional: Uncomment to enforce auth
+    }
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
@@ -42,11 +57,12 @@ export default function AdminAnalyticsPage() {
                                     </div>
                                 </div>
                             ))}
+                            {!analytics?.activity && <div className="w-full text-center text-slate-400 text-sm mt-20">No activity data available</div>}
                         </div>
                         <div className="flex justify-between mt-4 px-2">
                             {analytics?.labels?.map((d: string) => (
                                 <span key={d} className="text-[10px] font-black text-slate-300 uppercase">{d}</span>
-                            ))}
+                            )) || <span className="text-xs text-slate-300">Mon - Sun</span>}
                         </div>
                     </div>
 
@@ -56,7 +72,7 @@ export default function AdminAnalyticsPage() {
                                 <Users size={28} />
                             </div>
                             <div>
-                                <h3 className="text-3xl font-black text-slate-800">{analytics?.registrations}</h3>
+                                <h3 className="text-3xl font-black text-slate-800">{analytics?.registrations || 0}</h3>
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">New Registrations This Week</p>
                             </div>
                         </div>
@@ -66,7 +82,7 @@ export default function AdminAnalyticsPage() {
                                 <Activity size={28} />
                             </div>
                             <div>
-                                <h3 className="text-3xl font-black text-slate-800">{analytics?.examAttempts}</h3>
+                                <h3 className="text-3xl font-black text-slate-800">{analytics?.examAttempts || 0}</h3>
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Exam Attempts This Week</p>
                             </div>
                         </div>

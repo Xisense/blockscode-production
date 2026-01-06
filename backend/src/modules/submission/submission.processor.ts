@@ -28,9 +28,15 @@ export class SubmissionProcessor extends WorkerHost {
 
         try {
             // 1. Fetch Session and Exam for Grading
+            // OPTIMIZATION: Only fetch the questions field from exam, not the entire object
             const session = await this.prisma.examSession.findUnique({
                 where: { id: sessionId },
-                include: { exam: true }
+                select: {
+                    id: true,
+                    exam: {
+                        select: { questions: true }
+                    }
+                }
             });
 
             let internalMarks: Record<string, number> = {};

@@ -34,6 +34,7 @@ import {
     Home,
 } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 
 export default function AboutPage() {
     return (
@@ -270,9 +271,11 @@ function TheFounders() {
                                         transition={{ type: "spring", stiffness: 300 }}
                                     >
                                         <div className="absolute inset-0 bg-gradient-to-br from-blue-400 to-sky-500 rounded-full blur-lg opacity-30" />
-                                        <img
+                                        <Image
                                             src={leader.image || "/placeholder.svg"}
                                             alt={leader.name}
+                                            width={160}
+                                            height={160}
                                             className="relative w-32 h-32 sm:w-40 sm:h-40 rounded-full object-cover border-4 border-white shadow-lg"
                                         />
                                     </motion.div>

@@ -1,8 +1,27 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
 export const AuthService = {
+    // Legacy: getToken is deprecated as we use HttpOnly cookies
+    getToken() {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('auth_token');
+        }
+        return null;
+    },
+
+    // Legacy: user details might still be needed for UI context if not fetched from server
+    getUser() {
+        if (typeof window !== 'undefined') {
+            const user = localStorage.getItem('user');
+            return user ? JSON.parse(user) : null;
+        }
+        return null;
+    },
+
     async login(email: string, password: string): Promise<any> {
-        try {
+        // This should technically not be used directly anymore in favor of Server Action
+        // But if used, it will route through proxy
+         try {
             const res = await fetch(`${BASE_URL}/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -13,12 +32,13 @@ export const AuthService = {
                 const error = await res.json();
                 throw new Error(error.message || 'Login failed');
             }
-
+             
+            // We rely on the Proxy/Server Action to set the cookie.
+            // But this specific client-side call via Proxy might fail to set cookie 
+            // because Proxy forwards response. 
+            // IMPORTANT: Login SHOULD be done via Server Action (actions/auth.ts).
+            
             const data = await res.json();
-            if (data.access_token) {
-                localStorage.setItem('auth_token', data.access_token);
-                localStorage.setItem('user', JSON.stringify(data.user));
-            }
             return data;
         } catch (error) {
             console.error('[AuthService] Login error:', error);
@@ -140,21 +160,6 @@ export const AuthService = {
         }
 
         return await res.json();
-    },
-
-    getToken(): string | null {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('auth_token');
-        }
-        return null;
-    },
-
-    getUser(): any | null {
-        if (typeof window !== 'undefined') {
-            const user = localStorage.getItem('user');
-            return user ? JSON.parse(user) : null;
-        }
-        return null;
     },
 
     getRole(): string | null {

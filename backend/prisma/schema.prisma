@@ -45,6 +45,10 @@ model User {
 
   orgId        String?
   organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([role])
+  @@index([orgId])
 }
 
 model Exam {
@@ -91,6 +95,11 @@ model Exam {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([creatorId])
+  @@index([orgId])
+  @@index([slug])
+  @@index([testCode])
 }
 
 model ExamSession {
@@ -133,6 +142,9 @@ model Violation {
   proofUrl  String? // URL to screenshot/log if applicable
 
   session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([type])
 }
 
 model AuditLog {
@@ -159,6 +171,7 @@ model Feedback {
   exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
 
   @@index([examId])
+  @@unique([userId, examId]) // Ensure one feedback per user per exam
 }
 
 model Course {
@@ -188,6 +201,10 @@ model Course {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([creatorId])
+  @@index([orgId])
+  @@index([slug])
 }
 
 model CourseModule {
@@ -253,6 +270,10 @@ model UnitSubmission {
   updatedAt DateTime @updatedAt
 
   // @@unique([userId, unitId]) // Allow multiple attempts
+
+  @@index([userId])
+  @@index([unitId])
+  @@index([status])
 }
 
 model Organization {

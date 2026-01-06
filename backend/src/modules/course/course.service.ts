@@ -73,16 +73,17 @@ export class CourseService {
 
         // 2. If Unit NOT found, look in CourseTests
         // (Course Tests store 'questions' as structured JSON with sections)
-        const tests = await this.prisma.courseTest.findMany({ include: { course: true } });
-        console.log('[CourseService] searching', tests.length, 'course tests for question id');
+        const whereClause: any = {};
+        if (user && user.role !== 'SUPER_ADMIN' && user.orgId) {
+            whereClause.course = { orgId: user.orgId };
+        }
+
+        const tests = await this.prisma.courseTest.findMany({
+            where: whereClause,
+            include: { course: true }
+        });
+        console.log('[CourseService] searching', tests.length, 'course tests for question id (filtered by org)');
         for (const test of tests) {
-            // OPTIMIZATION: Check isolation FIRST if efficient, but we need to find the specific test first
-            // Actually, if we are iterating all tests, we can skip those from other orgs!
-            if (user && user.role !== 'SUPER_ADMIN') {
-                if (test.course.orgId && test.course.orgId !== user.orgId) {
-                    continue; // Skip tests from other orgs
-                }
-            }
 
             // Defensive: CourseTest.questions might be stored as a JSON string or already as object
             let questionsData: any = test.questions;

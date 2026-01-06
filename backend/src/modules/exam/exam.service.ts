@@ -27,6 +27,52 @@ export class ExamService {
         }
     }
 
+    async getExamIdBySlug(slug: string, user?: any) {
+        // Lightweight lookup for Start Session
+        // 1. Exam
+        const exam = await this.prisma.exam.findUnique({
+             where: { slug },
+             select: { id: true, orgId: true, isActive: true }
+        });
+        
+        if (exam) {
+            if (!exam.isActive) throw new NotFoundException('Exam is not active');
+            if (user && user.role !== 'SUPER_ADMIN' && exam.orgId && exam.orgId !== user.orgId) {
+                throw new NotFoundException('Access Denied');
+            }
+            return exam.id;
+        }
+
+        // 2. Course Test
+        const test = await this.prisma.courseTest.findUnique({
+            where: { slug },
+            select: { id: true, course: { select: { orgId: true } } }
+        });
+
+        if (test) {
+             if (user && user.role !== 'SUPER_ADMIN' && test.course.orgId && test.course.orgId !== user.orgId) {
+                throw new NotFoundException('Access Denied');
+            }
+            return test.id;
+        }
+
+        // 3. Course (Curriculum)
+        // Usually courses don't have "start session" in the same way, but if they do:
+        const course = await this.prisma.course.findUnique({
+            where: { slug },
+            select: { id: true, orgId: true }
+        });
+        
+        if (course) {
+             if (user && user.role !== 'SUPER_ADMIN' && course.orgId && course.orgId !== user.orgId) {
+                throw new NotFoundException('Access Denied');
+            }
+            return course.id;
+        }
+
+        throw new NotFoundException('Exam not found');
+    }
+
     async getExamBySlug(slug: string, user?: any) {
         // 1. Try finding in Standalone Exams
         const exam = await this.prisma.exam.findUnique({
@@ -496,8 +542,16 @@ export class ExamService {
     }
 
     async saveFeedback(userId: string, examId: string, rating: number, comment: string) {
-        return await this.prisma.feedback.create({
-            data: {
+        return await this.prisma.feedback.upsert({
+            where: {
+                userId_examId: { userId, examId }
+            },
+            update: {
+                rating,
+                comment,
+                timestamp: new Date()
+            },
+            create: {
                 userId,
                 examId,
                 rating,

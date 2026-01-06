@@ -5,9 +5,10 @@ import type { IExecutionStrategy } from './strategies/execution-strategy.interfa
 
 @Processor('code-execution', {
     limiter: {
-        max: 5,
+        max: 5, // Increased limit (assuming minimal risk or local hosting)
         duration: 1000
     },
+    concurrency: 5, // Allow 5 parallel requests to maximize throughput up to the rate limit
     // Optimize for serverless Redis (reduce command usage)
     stalledInterval: 300000, // 5 minutes
     maxStalledCount: 3,

@@ -1,12 +1,11 @@
 import { AuthService } from "./AuthService";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+// Use local proxy for client-side functionality to ensure cookies are sent
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
 const getHeaders = (hasBody = true) => {
-    const token = AuthService.getToken();
-    const headers: any = {
-        'Authorization': `Bearer ${token}`
-    };
+    // We no longer manually attach the token, the Proxy (or server) does it via Cookie
+    const headers: any = {};
     if (hasBody) {
         headers['Content-Type'] = 'application/json';
     }
@@ -453,9 +452,9 @@ export const TeacherService = {
         }
     },
 
-    async getExamResults(examId: string) {
+    async getExamResults(examId: string, page = 1, limit = 50) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/results`, {
+            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/results?page=${page}&limit=${limit}`, {
                 headers: getHeaders(false)
             });
             if (!res.ok) throw new Error('Failed to fetch exam results');

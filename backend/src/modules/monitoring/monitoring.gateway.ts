@@ -137,10 +137,7 @@ export class MonitoringGateway
         const examSession = await this.prisma.examSession.findUnique({
             where: { id: data.sessionId },
             include: {
-                exam: true,
-                violations: {
-                    where: { type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT', 'TAB_SWITCH_IN'] } }
-                }
+                exam: true
             }
         });
 
@@ -154,7 +151,7 @@ export class MonitoringGateway
             return { status: 'rejected', reason: 'Session inactive' };
         }
 
-        // Save to DB
+        // Save to DB (Fire and forget? No, wait for it to ensure consistency)
         await this.prisma.violation.create({
             data: {
                 sessionId: data.sessionId,
@@ -165,12 +162,22 @@ export class MonitoringGateway
             }
         });
 
-        let tabSwitchOutCount = examSession.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
-        let tabSwitchInCount = examSession.violations.filter((v: any) => v.type === 'TAB_SWITCH_IN').length;
-
-        // Since we just created a new one, increment the relevant count
-        if (data.type === 'TAB_SWITCH' || data.type === 'TAB_SWITCH_OUT') tabSwitchOutCount++;
-        if (data.type === 'TAB_SWITCH_IN') tabSwitchInCount++;
+        // OPTIMIZATION: Count using DB aggregation instead of fetching all rows
+        // This is much lighter on memory and bandwidth
+        const [tabSwitchOutCount, tabSwitchInCount] = await Promise.all([
+            this.prisma.violation.count({
+                where: { 
+                    sessionId: data.sessionId, 
+                    type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT'] } 
+                }
+            }),
+            this.prisma.violation.count({
+                where: { 
+                    sessionId: data.sessionId, 
+                    type: 'TAB_SWITCH_IN' 
+                }
+            })
+        ]);
 
         // 2. CHECK TAB SWITCH LIMIT (Auto-termination)
         const limit = (examSession.exam as any)?.tabSwitchLimit;

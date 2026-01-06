@@ -1,13 +1,12 @@
 import { UnitQuestion } from '@/app/components/UnitRenderer';
 import { AuthService } from './AuthService';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
 const getHeaders = () => {
-    const token = AuthService.getToken();
+    // Auth token is handled by cookie in Proxy
     return {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        'Content-Type': 'application/json'
     };
 };
 

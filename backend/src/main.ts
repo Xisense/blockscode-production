@@ -27,6 +27,18 @@ async function bootstrap() {
         },
     });
 
+    // Register cookie support
+    await app.register(require('@fastify/cookie'), {
+        secret: process.env.COOKIE_SECRET || 'my-super-secret-secret', 
+        parseOptions: {} 
+    });
+
+    // Register compression for performance (gzip/brotli)
+    await app.register(require('@fastify/compress'), { 
+        global: true, 
+        encodings: ['gzip', 'deflate'] 
+    });
+
     // Set global API prefix
     app.setGlobalPrefix('api');
 

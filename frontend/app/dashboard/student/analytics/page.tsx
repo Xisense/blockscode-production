@@ -65,12 +65,20 @@ export default function AnalyticsPage() {
                 if (studentId) {
                     // Fetch as teacher
                     const { TeacherService } = await import("@/services/api/TeacherService");
-                    data = await TeacherService.getStudentAnalytics(studentId);
-                    attemptsData = await TeacherService.getStudentUnitSubmissions(studentId);
+                    const [analyticsResult, attemptsResult] = await Promise.all([
+                        TeacherService.getStudentAnalytics(studentId),
+                        TeacherService.getStudentUnitSubmissions(studentId)
+                    ]);
+                    data = analyticsResult;
+                    attemptsData = attemptsResult;
                 } else {
                     // Fetch as student
-                    data = await StudentService.getAnalytics();
-                    attemptsData = await StudentService.getUnitAttempts();
+                    const [analyticsResult, attemptsResult] = await Promise.all([
+                        StudentService.getAnalytics(),
+                        StudentService.getUnitAttempts()
+                    ]);
+                    data = analyticsResult;
+                    attemptsData = attemptsResult;
                 }
 
                 setAnalyticsData(data);

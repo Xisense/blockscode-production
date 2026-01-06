@@ -4,9 +4,9 @@ import { BRAND } from '../../constants/brand';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { AuthService } from '@/services/api/AuthService';
 import { useOrganization } from '@/app/context/OrganizationContext';
 import Loading from '@/app/loading';
+import { examLoginAction } from '@/actions/examAuth';
 
 export default function ExamLoginPage() {
     const router = useRouter();
@@ -81,15 +81,21 @@ export default function ExamLoginPage() {
         setLoading(true);
         setError('');
         try {
-            const data = await AuthService.examLogin(email, testCode, password);
+            // Secure Server Action - Sets HttpOnly Cookie
+            const result = await examLoginAction(email, testCode, password);
+            
+            if (!result.success) {
+                throw new Error(result.error);
+            }
 
+            const data = result; // maintain structure
             const targetSlug = data.exam?.slug || slugFromQuery;
             if (targetSlug) {
-                // Store student metadata for session initialization
+                // Store student metadata for session initialization (Non-sensitive display info)
                 const metadata = { rollNumber: rollNo, name, section };
                 localStorage.setItem(`exam_${targetSlug}_metadata`, JSON.stringify(metadata));
 
-                // Set mandatory auth marker for this specific exam
+                // Set mandatory auth marker (just a UI flag, real auth is cookie)
                 localStorage.setItem(`exam_${targetSlug}_auth`, 'true');
 
                 // Use replace to prevent going back to login page

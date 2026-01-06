@@ -3,12 +3,15 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
     constructor(
         configService: ConfigService,
-        private prisma: PrismaService
+        private prisma: PrismaService,
+        @InjectRedis() private readonly redis: Redis
     ) {
         const secret = configService.get<string>('JWT_SECRET');
         if (!secret) {
@@ -16,13 +19,27 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         }
 
         super({
-            jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+            jwtFromRequest: ExtractJwt.fromExtractors([
+                ExtractJwt.fromAuthHeaderAsBearerToken(),
+                (req: any) => {
+                    return req?.cookies?.auth_token || null;
+                }
+            ]),
             ignoreExpiration: false,
             secretOrKey: secret,
         });
     }
 
     async validate(payload: any) {
+        // PERFORMANCE: Cache user validation in Redis for 5 minutes
+        // This reduces DB hits on every request from 1 to 0 (mostly)
+        const cacheKey = `user:session:${payload.sub}`;
+        const cached = await this.redis.get(cacheKey);
+
+        if (cached) {
+            return JSON.parse(cached);
+        }
+
         // Real-time check if user is still active
         const user = await this.prisma.user.findUnique({
             where: { id: payload.sub },
@@ -42,7 +59,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             throw new UnauthorizedException('ACCOUNT_SUSPENDED');
         }
 
-        return {
+        const sessionUser = {
             id: payload.sub,
             email: payload.email,
             role: payload.role,
@@ -50,5 +67,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             features: user.organization?.features || {},
             mustChangePassword: user.mustChangePassword
         };
+
+        // Cache for 5 minutes (300 seconds)
+        await this.redis.set(cacheKey, JSON.stringify(sessionUser), 'EX', 300);
+
+        return sessionUser;
     }
 }

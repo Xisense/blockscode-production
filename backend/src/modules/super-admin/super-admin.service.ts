@@ -136,16 +136,37 @@ export class SuperAdminService {
         });
     }
 
-    async getUsers() {
-        return this.prisma.user.findMany({
-            include: {
-                organization: {
-                    select: { name: true }
-                }
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 100 // Safety limit
-        });
+    async getUsers(page: number, limit: number, search: string) {
+        const skip = (page - 1) * limit;
+        const where: any = {};
+        
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+                // Note: Filtering by relation (organization) depends on Prisma version/db support. 
+                // If this fails, consider removing the relation filter or doing it differently.
+                // Assuming efficient enough for now or that it's supported.
+                { organization: { name: { contains: search, mode: 'insensitive' } } }
+            ];
+        }
+
+        const [users, total] = await Promise.all([
+            this.prisma.user.findMany({
+                where,
+                include: {
+                    organization: {
+                        select: { name: true }
+                    }
+                },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit
+            }),
+            this.prisma.user.count({ where })
+        ]);
+
+        return { data: users, total, page, limit, totalPages: Math.ceil(total / limit) };
     }
 
     async updateUser(id: string, data: any) {

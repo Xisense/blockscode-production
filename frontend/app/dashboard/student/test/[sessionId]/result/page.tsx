@@ -37,6 +37,7 @@ export default function ExamResultPage({ params }: { params: Promise<{ sessionId
         if (resultData.sections && resultData.sections.length > 0) {
              return resultData.sections.map((sec: any) => ({
                  ...sec,
+                 status: 'active', // Ensure sections are unlocked for result viewing
                  questions: sec.questions.map((q: any) => ({
                      ...q,
                      status: 'answered'
@@ -61,6 +62,18 @@ export default function ExamResultPage({ params }: { params: Promise<{ sessionId
     const handleQuestionSelect = (sectionId: string, questionId: string | number) => {
         const index = resultData.questions.findIndex((q: any) => q.id === questionId);
         if (index !== -1) setCurrentQuestionIndex(index);
+    };
+
+    const handlePrevious = () => {
+        if (currentQuestionIndex > 0) {
+            setCurrentQuestionIndex(prev => prev - 1);
+        }
+    };
+
+    const handleNext = () => {
+        if (currentQuestionIndex < (resultData?.questions?.length || 0) - 1) {
+            setCurrentQuestionIndex(prev => prev + 1);
+        }
     };
 
     if (loading) return <Loading />;
@@ -131,9 +144,11 @@ export default function ExamResultPage({ params }: { params: Promise<{ sessionId
                              <UnitRenderer
                                 question={currentQuestion}
                                 activeTab="question"
-                                hideNav={true}
+                                hideNav={false}
                                 hideTabs={true}
-                                isExamMode={true}
+                                isExamMode={false}
+                                onPrevious={handlePrevious}
+                                onNext={handleNext}
                                 // Read-only mode simulation
                                 selectedAttemptId="submission" 
                                 viewingAttemptAnswer={userAnswer}

@@ -155,40 +155,35 @@ export class TeacherService {
 
         const students = await this.prisma.user.findMany({
             where: whereClause,
-            include: {
+            select: {
+                id: true, name: true, email: true, rollNumber: true, createdAt: true,
                 courses: {
                     where: courseFilter,
                     select: {
-                        id: true,
-                        title: true,
-                        modules: {
-                            include: {
-                                units: {
-                                    select: { id: true }
-                                }
-                            }
-                        }
+                        id: true, title: true,
+                        modules: { select: { units: { select: { id: true } } } }
                     }
                 },
                 unitSubmissions: {
-                    where: submissionFilter,
-                    select: {
-                        status: true,
-                        unitId: true
-                    }
+                    where: { ...submissionFilter, status: 'COMPLETED' },
+                    select: { unitId: true }
                 }
             },
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
+            take: 50
         });
 
         return students.map((s: any) => {
-            const completedUnitIds = new Set(s.unitSubmissions.filter((sub: any) => sub.status === 'COMPLETED').map((sub: any) => sub.unitId));
+            const completedUnitIds = new Set(s.unitSubmissions.map((sub: any) => sub.unitId));
 
             const detailedCourses = s.courses.map((course: any) => {
-                const totalUnits = course.modules.reduce((sum: number, mod: any) => sum + mod.units.length, 0);
-                const completedCount = course.modules.reduce((sum: number, mod: any) =>
-                    sum + mod.units.filter((u: any) => completedUnitIds.has(u.id)).length, 0
-                );
+                const allCourseUnitIds = course.modules.flatMap((m: any) => m.units.map((u: any) => u.id));
+                const totalUnits = allCourseUnitIds.length;
+                
+                let completedCount = 0;
+                for (const uid of allCourseUnitIds) {
+                    if (completedUnitIds.has(uid)) completedCount++;
+                }
                 const progress = totalUnits > 0 ? Math.round((completedCount / totalUnits) * 100) : 0;
 
                 return {
@@ -334,8 +329,8 @@ export class TeacherService {
         ]);
 
         const allActivities = [
-            ...sessions.map(s => s.createdAt),
-            ...unitSubmissions.map(u => u.createdAt)
+            ...sessions.map((s: any) => s.createdAt),
+            ...unitSubmissions.map((u: any) => u.createdAt)
         ].sort((a, b) => b.getTime() - a.getTime());
 
         if (allActivities.length === 0) return 0;
@@ -1013,9 +1008,9 @@ export class TeacherService {
         });
 
         // Transform to frontend format
-        return sessions.map(session => {
-            const tabSwitchViolations = session.violations.filter(v => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT' || v.type === 'TAB_SWITCH_IN');
-            const vmViolations = session.violations.filter(v => v.type === 'VM_DETECTED');
+        return sessions.map((session: any) => {
+            const tabSwitchViolations = session.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT' || v.type === 'TAB_SWITCH_IN');
+            const vmViolations = session.violations.filter((v: any) => v.type === 'VM_DETECTED');
 
             return {
                 id: session.user.id,
@@ -1026,8 +1021,8 @@ export class TeacherService {
                 ip: session.ipAddress || 'Unknown',
                 vmDetected: session.vmDetected || vmViolations.length > 0,
                 vmType: vmViolations.length > 0 ? vmViolations[0].message : null,
-                tabOuts: session.violations.filter(v => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length,
-                tabIns: session.violations.filter(v => v.type === 'TAB_SWITCH_IN').length,
+                tabOuts: session.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length,
+                tabIns: session.violations.filter((v: any) => v.type === 'TAB_SWITCH_IN').length,
                 isHighRisk: session.vmDetected || tabSwitchViolations.length > 5,
                 lastActivity: new Date(session.updatedAt).toLocaleString(),
                 startTime: new Date(session.startTime).toLocaleTimeString(),
@@ -1036,7 +1031,7 @@ export class TeacherService {
                 loginCount: 1,
                 sleepDuration: '0m',
                 appVersion: 'Web',
-                logs: session.violations.map(v => ({
+                logs: session.violations.map((v: any) => ({
                     time: new Date(v.timestamp).toLocaleTimeString(),
                     event: v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT' ? 'Tab Switch Out' : v.type === 'TAB_SWITCH_IN' ? 'Tab Switch In' : v.type === 'VM_DETECTED' ? 'VM Detection' : v.type,
                     description: v.message || 'No details'
@@ -1064,7 +1059,7 @@ export class TeacherService {
             orderBy: { timestamp: 'desc' }
         });
 
-        return feedbacks.map(f => ({
+        return feedbacks.map((f: any) => ({
             id: f.id,
             userName: f.user.name || f.user.email || 'Anonymous',
             userEmail: f.user.email,
@@ -1108,29 +1103,55 @@ export class TeacherService {
         return { success: true };
     }
 
-    async getExamResults(examId: string, user: any) {
+    async getExamResults(examId: string, user: any, page: number = 1, limit: number = 50, search: string = '') {
         // Verify ownership
         const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
         if (!exam) throw new Error('Exam not found');
         this.checkAccess(exam, user);
 
-        const sessions = await this.prisma.examSession.findMany({
+        const skip = (page - 1) * limit;
+
+        // Where Clause
+        const where: any = { examId };
+        if (search) {
+            where.user = {
+                OR: [
+                    { name: { contains: search, mode: 'insensitive' } },
+                    { email: { contains: search, mode: 'insensitive' } },
+                    { rollNumber: { contains: search, mode: 'insensitive' } }
+                ]
+            };
+        }
+
+        // 1. Fetch Stats (Minimal)
+        const allStatsData = await this.prisma.examSession.findMany({
             where: { examId },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                        rollNumber: true
-                    }
-                }
-            },
-            orderBy: { endTime: 'desc' }
+            select: { status: true, score: true }
         });
 
-        // Map sessions to frontend format
-        const mappedSessions = sessions.map(session => {
+        // 2. Fetch Paginated Sessions
+        const [sessions, totalFiltered] = await Promise.all([
+            this.prisma.examSession.findMany({
+                where,
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            rollNumber: true
+                        }
+                    }
+                },
+                orderBy: { endTime: 'desc' },
+                skip,
+                take: limit
+            }),
+            this.prisma.examSession.count({ where })
+        ]);
+
+         // Map sessions to frontend format
+         const mappedSessions = sessions.map((session: any) => {
             const answers = typeof session.answers === 'string'
                 ? JSON.parse(session.answers)
                 : (session.answers || {});
@@ -1220,7 +1241,26 @@ export class TeacherService {
 
         return {
             results: mappedSessions,
-            resultsPublished: (exam as any).resultsPublished || false
+            resultsPublished: (exam as any).resultsPublished || false,
+            pagination: {
+                total: totalFiltered,
+                page,
+                limit,
+                totalPages: Math.ceil(totalFiltered / limit)
+            },
+            stats: {
+                avgScore: allStatsData.reduce((acc: number, c: any) => acc + (Number(c.score) || 0), 0) / (allStatsData.length || 1),
+                passedCount: allStatsData.filter((s: any) => s.status === 'Passed').length,
+                failedCount: allStatsData.filter((s: any) => s.status === 'Failed').length,
+                totalCount: allStatsData.length,
+                highScore: Math.max(...allStatsData.map((s: any) => Number(s.score) || 0), 0),
+                distribution: [
+                    { score: '0-25%', count: allStatsData.filter((r: any) => (Number(r.score) / (Number(exam.totalMarks)||100)) < 0.25).length },
+                    { score: '25-50%', count: allStatsData.filter((r: any) => { const p = Number(r.score)/(Number(exam.totalMarks)||100); return p >= 0.25 && p < 0.5; }).length },
+                    { score: '50-75%', count: allStatsData.filter((r: any) => { const p = Number(r.score)/(Number(exam.totalMarks)||100); return p >= 0.5 && p < 0.75; }).length },
+                    { score: '75-100%', count: allStatsData.filter((r: any) => (Number(r.score) / (Number(exam.totalMarks)||100)) >= 0.75).length },
+                ]
+            }
         };
     }
 

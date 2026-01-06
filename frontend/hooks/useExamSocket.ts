@@ -37,6 +37,7 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
             transports: ['websocket'],
             reconnection: true,
             reconnectionAttempts: 5,
+            withCredentials: true,
         });
 
         socketRef.current = socket;

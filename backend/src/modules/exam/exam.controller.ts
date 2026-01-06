@@ -50,11 +50,12 @@ export class ExamController {
             throw new UnauthorizedException('User ID required');
         }
 
-        const exam = await this.examService.getExamBySlug(slug, user);
+        // OPTIMIZATION: Use lightweight ID lookup instead of full transform
+        const examId = await this.examService.getExamIdBySlug(slug, user);
         const ip = req.ip;
 
         // Pass userId, deviceId, tabId, and metadata to startSession
-        return this.examService.startSession(user.id, exam.id, ip, body.deviceId, body.tabId, body.metadata);
+        return this.examService.startSession(user.id, examId, ip, body.deviceId, body.tabId, body.metadata);
     }
 
     @Post()

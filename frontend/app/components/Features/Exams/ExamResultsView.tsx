@@ -7,6 +7,7 @@ import {
     BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid
 } from 'recharts';
 import { TeacherService } from "@/services/api/TeacherService";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Result {
     sessionId: string;
@@ -32,6 +33,9 @@ interface ExamResultsViewProps {
 export default function ExamResultsView({ title = "Exam Analysis", examId, userRole = 'teacher', basePath }: ExamResultsViewProps) {
     const [results, setResults] = useState<Result[]>([]);
     const [loading, setLoading] = useState(true);
+    const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 1 });
+    const [serverStats, setServerStats] = useState<any>(null);
+
     const [isResultsPublished, setIsResultsPublished] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
     const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean, title: string, message: string, type?: 'danger' | 'warning' | 'info' }>({ isOpen: false, title: '', message: '' });
@@ -40,10 +44,12 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
         async function loadResults() {
             try {
                 setLoading(true);
-                const data = await TeacherService.getExamResults(examId);
+                const data = await TeacherService.getExamResults(examId, pagination.page, pagination.limit);
                 if (data.results) {
                     setResults(data.results);
                     setIsResultsPublished(data.resultsPublished);
+                    if (data.pagination) setPagination(data.pagination);
+                    if (data.stats) setServerStats(data.stats);
                 } else {
                     setResults(data);
                 }
@@ -54,11 +60,23 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
             }
         }
         loadResults();
-    }, [examId]);
+    }, [examId, pagination.page]);
 
     const stats = useMemo(() => {
-        if (results.length === 0) return { avgScore: 0, avgTime: 0, passedCount: 0, failedCount: 0, distribution: [], highScore: 0 };
+        if (serverStats) {
+            return {
+                avgScore: serverStats.avgScore || 0,
+                avgTime: 0, // Not passed from backend yet, keeping 0/hidden
+                passedCount: serverStats.passedCount || 0,
+                failedCount: serverStats.failedCount || 0,
+                distribution: serverStats.distribution || [],
+                highScore: serverStats.highScore || 0
+            };
+        }
 
+        if (results.length === 0) return { avgScore: 0, avgTime: 0, passedCount: 0, failedCount: 0, distribution: [], highScore: 0 };
+        
+        // Legacy fallback calculation
         const passedCount = results.filter(r => r.status === "Passed").length;
         const failedCount = results.filter(r => r.status === "Failed").length;
 
@@ -78,7 +96,7 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
         ];
 
         return { avgScore, avgTime, passedCount, failedCount, distribution, highScore };
-    }, [results]);
+    }, [results, serverStats]);
 
     const brandColor = '#fc751b';
     const brandLightColor = 'var(--brand-light)';
@@ -342,6 +360,29 @@ export default function ExamResultsView({ title = "Exam Analysis", examId, userR
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+                
+                 {/* Pagination */}
+                 <div className="flex items-center justify-between mt-6">
+                    <p className="text-xs font-bold text-slate-400">
+                        Page {pagination.page} of {pagination.totalPages} ({pagination.total} students)
+                    </p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPagination(p => ({ ...p, page: Math.max(1, p.page - 1) }))}
+                            disabled={pagination.page === 1}
+                            className="p-2 rounded-xl bg-white border border-slate-100 disabled:opacity-50 hover:bg-slate-50 transition-colors"
+                        >
+                            <ChevronLeft size={16} className="text-slate-600" />
+                        </button>
+                        <button
+                            onClick={() => setPagination(p => ({ ...p, page: Math.min(pagination.totalPages, p.page + 1) }))}
+                            disabled={pagination.page === pagination.totalPages}
+                            className="p-2 rounded-xl bg-white border border-slate-100 disabled:opacity-50 hover:bg-slate-50 transition-colors"
+                        >
+                            <ChevronRight size={16} className="text-slate-600" />
+                        </button>
                     </div>
                 </div>
 
