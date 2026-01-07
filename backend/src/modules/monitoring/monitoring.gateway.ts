@@ -134,20 +134,37 @@ export class MonitoringGateway
         },
         @ConnectedSocket() client: Socket,
     ) {
-        const examSession = await this.prisma.examSession.findUnique({
-            where: { id: data.sessionId },
-            include: {
-                exam: true
+        // PERFORMANCE: Check Cache for Session Status & Limits
+        const cacheKey = `session:status:${data.sessionId}`;
+        let cachedData = await this.redis.get(cacheKey);
+        
+        // Parse cached data or init as null
+        let sessionData: { status: string; tabSwitchLimit: number | null } = cachedData ? JSON.parse(cachedData) : null;
+
+        if (!sessionData) {
+            const examSession = await this.prisma.examSession.findUnique({
+                where: { id: data.sessionId },
+                select: { 
+                    status: true,
+                    exam: { select: { tabSwitchLimit: true } }
+                }
+            });
+            if (!examSession) {
+                 return { status: 'rejected', reason: 'Session not found' };
             }
-        });
+            sessionData = {
+                status: examSession.status,
+                tabSwitchLimit: examSession.exam?.tabSwitchLimit || null
+            };
+            // Cache for short duration as status can change
+            await this.redis.set(cacheKey, JSON.stringify(sessionData), 'EX', 60);
+        }
+        
+        const status = sessionData.status;
 
         // 1. BLOCK violations if session is already completed or terminated
-        if (!examSession) {
-            console.log(`[Proctoring] Rejected violation: Session ${data.sessionId} not found`);
-            return { status: 'rejected', reason: 'Session not found' };
-        }
-        if (examSession.status === 'COMPLETED' || examSession.status === 'TERMINATED') {
-            console.log(`[Proctoring] Rejected violation: Session ${data.sessionId} is ${examSession.status}`);
+        if (status === 'COMPLETED' || status === 'TERMINATED') {
+            console.log(`[Proctoring] Rejected violation: Session ${data.sessionId} is ${status}`);
             return { status: 'rejected', reason: 'Session inactive' };
         }
 
@@ -162,25 +179,78 @@ export class MonitoringGateway
             }
         });
 
-        // OPTIMIZATION: Count using DB aggregation instead of fetching all rows
-        // This is much lighter on memory and bandwidth
-        const [tabSwitchOutCount, tabSwitchInCount] = await Promise.all([
-            this.prisma.violation.count({
-                where: { 
-                    sessionId: data.sessionId, 
-                    type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT'] } 
-                }
-            }),
-            this.prisma.violation.count({
-                where: { 
-                    sessionId: data.sessionId, 
-                    type: 'TAB_SWITCH_IN' 
-                }
-            })
-        ]);
+        // OPTIMIZATION: Use Redis Atomic Counters for Tab Switches
+        const keyIn = `violation:count:in:${data.sessionId}`;
+        const keyOut = `violation:count:out:${data.sessionId}`;
+        
+        let tabSwitchInCount = 0;
+        let tabSwitchOutCount = 0;
+
+        if (data.type === 'TAB_SWITCH_IN') {
+             // Increment IN counter
+             // If key missing, we might need to init it. But INCR starts at 1 so it's safer to just rely on Redis if we assume consistency.
+             // However, upon restart Redis is empty. We need lazy loading.
+             
+             if (await this.redis.exists(keyIn)) {
+                 tabSwitchInCount = await this.redis.incr(keyIn);
+             } else {
+                 // Fetch initial count from DB
+                 const dbCount = await this.prisma.violation.count({
+                    where: { sessionId: data.sessionId, type: 'TAB_SWITCH_IN' } 
+                 });
+                 // dbCount includes the one we just created above? Yes, because we awaited create.
+                 await this.redis.set(keyIn, dbCount);
+                 tabSwitchInCount = dbCount;
+             }
+             
+             // Get OUT count without incrementing
+             const cachedOut = await this.redis.get(keyOut);
+             if (cachedOut) {
+                 tabSwitchOutCount = parseInt(cachedOut);
+             } else {
+                 tabSwitchOutCount = await this.prisma.violation.count({
+                    where: { sessionId: data.sessionId, type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT'] } } 
+                 });
+                 await this.redis.set(keyOut, tabSwitchOutCount);
+             }
+
+        } else if (data.type === 'TAB_SWITCH' || data.type === 'TAB_SWITCH_OUT') {
+             // Increment OUT counter
+             if (await this.redis.exists(keyOut)) {
+                 tabSwitchOutCount = await this.redis.incr(keyOut);
+             } else {
+                 const dbCount = await this.prisma.violation.count({
+                    where: { sessionId: data.sessionId, type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT'] } } 
+                 });
+                 await this.redis.set(keyOut, dbCount);
+                 tabSwitchOutCount = dbCount;
+             }
+
+             // Get IN count without incrementing
+             const cachedIn = await this.redis.get(keyIn);
+             if (cachedIn) {
+                 tabSwitchInCount = parseInt(cachedIn);
+             } else {
+                 tabSwitchInCount = await this.prisma.violation.count({
+                    where: { sessionId: data.sessionId, type: 'TAB_SWITCH_IN' } 
+                 });
+                 await this.redis.set(keyIn, tabSwitchInCount);
+             }
+        } else {
+            // For other violations, just fetch current counts if needed or return 0
+            // Or fallback to checking DB if we really need them for the event
+            // But usually we only send updated counts on tab switches.
+            
+            // Just read cache or DB
+            const cachedIn = await this.redis.get(keyIn);
+            tabSwitchInCount = cachedIn ? parseInt(cachedIn) : await this.prisma.violation.count({ where: { sessionId: data.sessionId, type: 'TAB_SWITCH_IN' } });
+            
+            const cachedOut = await this.redis.get(keyOut);
+            tabSwitchOutCount = cachedOut ? parseInt(cachedOut) : await this.prisma.violation.count({ where: { sessionId: data.sessionId, type: { in: ['TAB_SWITCH', 'TAB_SWITCH_OUT'] } } });
+        }
 
         // 2. CHECK TAB SWITCH LIMIT (Auto-termination)
-        const limit = (examSession.exam as any)?.tabSwitchLimit;
+        const limit = sessionData.tabSwitchLimit;
         if (data.type === 'TAB_SWITCH_IN' && limit && tabSwitchInCount >= limit) {
             console.log(`[Proctoring] Auto-terminating session ${data.sessionId} for user ${data.userId} due to tab switch limit (${tabSwitchInCount}/${limit})`);
 
@@ -239,17 +309,30 @@ export class MonitoringGateway
     }
 
     async forceTerminate(examId: string, userId: string) {
-        // 1. Broadcast error to student rooms
+        // 1. Broadcast error to student rooms (emit 'error' OR 'force_terminate' for robust handling)
         const studentRoom = `student_${userId}_exam_${examId}`;
+        console.log(`[Proctoring] Force terminating user ${userId} in exam ${examId}`);
+        
         this.server.to(studentRoom).emit('error', {
             message: 'EXAM_TERMINATED'
         });
 
-        // 2. Disconnect sockets
-        const sockets = await this.server.in(studentRoom).fetchSockets();
-        for (const s of sockets) {
-            s.disconnect(true);
-        }
+        // Also emit a specific event that isn't dependent on generic "error" handling
+        this.server.to(studentRoom).emit('force_terminate', {
+            message: 'EXAM_TERMINATED'
+        });
+
+        // 2. Disconnect sockets with a slight delay to ensure message delivery
+        setTimeout(async () => {
+            try {
+                const sockets = await this.server.in(studentRoom).fetchSockets();
+                for (const s of sockets) {
+                    s.disconnect(true);
+                }
+            } catch (e) {
+                console.error('[Proctoring] Error disconnecting sockets:', e);
+            }
+        }, 1000); // 1 second delay
 
         // 3. Clear Redis
         // await this.redis.del(`exam:${examId}:student:${userId}:online`);

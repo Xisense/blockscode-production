@@ -42,10 +42,8 @@ export default function LoginPage() {
 
             const user = result.user;
             
-            // Store token for client-side API calls
-            if (result.access_token) {
-                localStorage.setItem('auth_token', result.access_token);
-            }
+            // Store token for client-side API calls -> REMOVED
+            // We now rely on Http-Only cookies for security.            
             
             // Store user details for UI context
             localStorage.setItem('user', JSON.stringify(user));

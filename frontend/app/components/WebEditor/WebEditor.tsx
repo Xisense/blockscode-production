@@ -2,11 +2,6 @@
 import React, { useState, useEffect } from "react";
 import { useEditor } from "../Editor/hooks/useEditor";
 import { LanguageConfig } from "../Editor/types";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { java } from "@codemirror/lang-java";
-import { css } from "@codemirror/lang-css";
-import { html } from "@codemirror/lang-html";
 import { useWebFiles, WebFileName } from "./hooks/useWebFiles";
 import { generatePreviewBlob, revokePreviewUrl } from "./utils/PreviewEngine";
 import ExecuteButton from "../Common/ExecuteButton";
@@ -74,9 +69,18 @@ export default function WebEditor({
     // CodeMirror configuration based on active file
     const getLangConfig = (fileName: WebFileName): LanguageConfig => {
         const extMap: Record<string, () => Promise<any>> = {
-            "index.html": async () => html(),
-            "index.css": async () => css(),
-            "index.js": async () => javascript()
+            "index.html": async () => {
+                const { html } = await import("@codemirror/lang-html");
+                return html();
+            },
+            "index.css": async () => {
+                const { css } = await import("@codemirror/lang-css");
+                return css();
+            },
+            "index.js": async () => {
+                const { javascript } = await import("@codemirror/lang-javascript");
+                return javascript();
+            }
         };
         return {
             id: fileName.split('.')[1] as any,

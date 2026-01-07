@@ -1,23 +1,31 @@
 import { AuthService } from "./AuthService";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
+// Helper for authorized fetch
+const authFetch = async (endpoint: string, options: RequestInit = {}) => {
+    const url = `${BASE_URL}${endpoint}`;
+    return fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+        } as any
+    });
+};
+
+// Deprecated since we use cookies now
 const getHeaders = () => {
-    const token = AuthService.getToken();
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-    };
+    return { 'Content-Type': 'application/json' };
 };
 
 export const CourseService = {
     async getCourse(slug: string) {
         try {
-            const url = `${BASE_URL}/course/${slug}`;
-            console.log('[CourseService] GET', url);
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            console.log('[CourseService] GET course', slug);
+            const res = await authFetch(`/course/${slug}`);
+            
             if (!res.ok) {
                 let body: any = null;
                 try { body = await res.json(); } catch (e) { body = await res.text(); }
@@ -33,11 +41,9 @@ export const CourseService = {
 
     async getUnit(id: string) {
         try {
-            const url = `${BASE_URL}/course/unit/${id}`;
-            console.log('[CourseService] GET', url);
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            console.log('[CourseService] GET unit', id);
+            const res = await authFetch(`/course/unit/${id}`);
+            
             if (!res.ok) {
                 let body: any = null;
                 try { body = await res.json(); } catch (e) { body = await res.text(); }

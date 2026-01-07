@@ -59,27 +59,43 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
             }
 
             if (subdomain && !['www', 'app', 'api', 'admin'].includes(subdomain)) {
+                // CACHE: Check localStorage first
+                const localCache = localStorage.getItem(`org_cache_${subdomain}`);
+                if (localCache) {
+                    try {
+                        const { data, timestamp } = JSON.parse(localCache);
+                        // Valid for 1 hour
+                        if (Date.now() - timestamp < 3600 * 1000) {
+                            setOrganization(data);
+                            setLoading(false);
+                            // Background refresh logic could go here if needed, but returning early for speed
+                            injectBrandColors(data);
+                            return;
+                        }
+                    } catch (e) {
+                        localStorage.removeItem(`org_cache_${subdomain}`);
+                    }
+                }
+
                 try {
                     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/organization/public?domain=${subdomain}`);
                     if (res.ok) {
                         const data = await res.json();
-                        setOrganization({
+                        const orgData = {
                             name: data.name,
                             logo: data.logo,
                             primaryColor: data.primaryColor || '#fc751b',
                             domain: data.domain
-                        });
+                        };
+                        setOrganization(orgData);
+                        
+                        // Save to cache
+                        localStorage.setItem(`org_cache_${subdomain}`, JSON.stringify({
+                            data: orgData,
+                            timestamp: Date.now()
+                        }));
 
-                        // Inject dynamic CSS variables
-                        if (data.primaryColor) {
-                            const color = data.primaryColor;
-                            document.documentElement.style.setProperty('--brand', color);
-                            // Generate variants (simplified version)
-                            document.documentElement.style.setProperty('--brand-light', color + '20'); // 12% opacity hex
-                            document.documentElement.style.setProperty('--brand-lighter', color + '08'); // 5% opacity hex
-                            // For dark, we just use the same for now or simple darken logic if available
-                            document.documentElement.style.setProperty('--brand-dark', color);
-                        }
+                        injectBrandColors(orgData);
                     }
                 } catch (error) {
                     console.error("Failed to load organization branding", error);
@@ -90,6 +106,16 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
 
         fetchOrgBranding();
     }, []);
+
+    const injectBrandColors = (data: OrganizationBranding) => {
+        if (data.primaryColor) {
+            const color = data.primaryColor;
+            document.documentElement.style.setProperty('--brand', color);
+            document.documentElement.style.setProperty('--brand-light', color + '20');
+            document.documentElement.style.setProperty('--brand-lighter', color + '08');
+            document.documentElement.style.setProperty('--brand-dark', color);
+        }
+    };
 
     return (
         <OrganizationContext.Provider value={{ organization, loading }}>

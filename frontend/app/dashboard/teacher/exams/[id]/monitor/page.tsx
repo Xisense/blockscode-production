@@ -8,7 +8,7 @@ export default function ExamMonitorPage({ params }: { params: Promise<{ id: stri
 
     return (
         <div className="min-h-screen bg-[#F8FAFC]">
-            <Navbar />
+            <Navbar userRole="teacher" />
             <ExamMonitorView examId={id} userRole="teacher" />
         </div>
     );

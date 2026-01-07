@@ -1,6 +1,7 @@
   "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Image from "next/image";
 import { BRAND } from "../constants/brand";
 import ImpersonationBanner from "./Common/ImpersonationBanner";
 import { AuthService } from "@/services/api/AuthService";
@@ -68,24 +69,51 @@ export default function Navbar({ basePath, userRole: roleOverride, examConfig }:
   }, [pathname, router]);
 
   useEffect(() => {
-    // ... existing role effect
-    if (roleOverride) return;
+    // If a static role override is provided (e.g., from Dashboard Layout), use it and stop here.
+    // However, we should still ensure localStorage is synced if we want persistence across pages.
+    if (roleOverride) {
+      if (roleOverride !== localStorage.getItem("user-role")) {
+         localStorage.setItem("user-role", roleOverride);
+      }
+      return;
+    }
 
-    const storedRole = localStorage.getItem("user-role") as any;
-
+    // Dynamic Role Detection Strategy
+    // 1. Check URL Path (strongest specific signal)
     if (pathname?.startsWith("/dashboard/super-admin")) {
-      setRoleState('super-admin');
-      if (!roleOverride) localStorage.setItem("user-role", "super-admin");
-    } else if (pathname?.startsWith("/dashboard/admin")) {
-      setRoleState('admin');
-      if (!roleOverride) localStorage.setItem("user-role", "admin");
-    } else if (pathname?.startsWith("/dashboard/teacher")) {
-      setRoleState('teacher');
-      if (!roleOverride) localStorage.setItem("user-role", "teacher");
-    } else if (pathname?.startsWith("/dashboard/student")) {
-      setRoleState('student');
-      if (!roleOverride) localStorage.setItem("user-role", "student");
-    } else if (storedRole) {
+        setRoleState('super-admin');
+        localStorage.setItem("user-role", "super-admin");
+        return;
+    } 
+    if (pathname?.startsWith("/dashboard/admin")) {
+        setRoleState('admin');
+        localStorage.setItem("user-role", "admin");
+        return;
+    } 
+    if (pathname?.startsWith("/dashboard/teacher")) {
+        setRoleState('teacher');
+        localStorage.setItem("user-role", "teacher");
+        return;
+    }
+    if (pathname?.startsWith("/dashboard/student")) {
+        setRoleState('student');
+        localStorage.setItem("user-role", "student");
+        return;
+    }
+
+    // 2. Check Authenticated User Data (weak signal for generic pages)
+    const user = AuthService.getUser();
+    if (user?.role) {
+        // Map backend roles (TEACHER, SUPER_ADMIN) to frontend (teacher, super-admin)
+        const mappedRole = user.role.toLowerCase().replace('_', '-') as any;
+        setRoleState(mappedRole);
+        localStorage.setItem("user-role", mappedRole);
+        return;
+    }
+
+    // 3. Fallback to existing LocalStorage (weakest signal)
+    const storedRole = localStorage.getItem("user-role") as any;
+    if (storedRole) {
       setRoleState(storedRole);
     }
   }, [pathname, roleOverride]);
@@ -120,9 +148,9 @@ export default function Navbar({ basePath, userRole: roleOverride, examConfig }:
               onClick={() => !examConfig && router.push(`/dashboard/${role}`)}
               className={`flex items-center gap-2.5 ${examConfig ? 'cursor-default' : 'cursor-pointer'}`}
             >
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden shrink-0 ${!displayLogo ? 'bg-[var(--brand)]' : ''}`}>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden shrink-0 ${!displayLogo ? 'bg-[var(--brand)]' : ''} relative`}>
                 {displayLogo ? (
-                  <img src={displayLogo} alt="Logo" className="w-full h-full object-contain p-0.5" />
+                  <Image src={displayLogo} alt="Logo" fill sizes="36px" className="object-contain p-0.5" />
                 ) : (
                   <span className="text-white font-black text-xs">{BRAND.logoText}</span>
                 )}
@@ -411,10 +439,10 @@ function ProfileMenu({ isTeacher, isAdmin, isSuperAdmin, examConfig }: { isTeach
 
       <button
         onClick={() => setOpen(!open)}
-        className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--brand)] to-[var(--brand-dark)] flex items-center justify-center text-white font-black text-sm overflow-hidden"
+        className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--brand)] to-[var(--brand-dark)] flex items-center justify-center text-white font-black text-sm overflow-hidden relative"
       >
         {userData?.profilePicture ? (
-          <img src={userData.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+          <Image src={userData.profilePicture} alt="Profile" fill sizes="40px" className="object-cover" />
         ) : (
           isSuperAdmin ? 'SA' : isAdmin ? 'A' : 'P'
         )}

@@ -28,58 +28,86 @@ export class ExamService {
     }
 
     async getExamIdBySlug(slug: string, user?: any) {
-        // Lightweight lookup for Start Session
-        // 1. Exam
-        const exam = await this.prisma.exam.findUnique({
-             where: { slug },
-             select: { id: true, orgId: true, isActive: true }
-        });
+        // PERFORMANCE: Check Cache
+        const cacheKey = `exam:lookup:${slug}`;
+        const cached = await this.redis.get(cacheKey);
         
-        if (exam) {
-            if (!exam.isActive) throw new NotFoundException('Exam is not active');
-            if (user && user.role !== 'SUPER_ADMIN' && exam.orgId && exam.orgId !== user.orgId) {
-                throw new NotFoundException('Access Denied');
+        let foundData = cached ? JSON.parse(cached) : null;
+        
+        if (!foundData) {
+            // Lightweight lookup for Start Session
+            // 1. Exam
+            const exam = await this.prisma.exam.findUnique({
+                 where: { slug },
+                 select: { id: true, orgId: true, isActive: true }
+            });
+            
+            if (exam) {
+                foundData = { ...exam, type: 'exam' };
+            } else {
+                // 2. Course Test
+                const test = await this.prisma.courseTest.findUnique({
+                    where: { slug },
+                    select: { id: true, course: { select: { orgId: true } } }
+                });
+                
+                if (test) {
+                    foundData = { id: test.id, orgId: test.course?.orgId, type: 'test' };
+                } else {
+                    // 3. Course (Curriculum)
+                    const course = await this.prisma.course.findUnique({
+                        where: { slug },
+                        select: { id: true, orgId: true }
+                    });
+                    if (course) {
+                        foundData = { ...course, type: 'course' };
+                    }
+                }
             }
-            return exam.id;
+
+            if (foundData) {
+                console.log(`[ExamService] Resolved slug '${slug}' to type '${foundData.type}' with ID: ${foundData.id}`);
+                await this.redis.set(cacheKey, JSON.stringify(foundData), 'EX', 3600);
+            }
         }
 
-        // 2. Course Test
-        const test = await this.prisma.courseTest.findUnique({
-            where: { slug },
-            select: { id: true, course: { select: { orgId: true } } }
-        });
-
-        if (test) {
-             if (user && user.role !== 'SUPER_ADMIN' && test.course.orgId && test.course.orgId !== user.orgId) {
+        if (foundData) {
+            if (foundData.isActive === false) throw new NotFoundException('Exam is not active');
+            if (user && user.role !== 'SUPER_ADMIN' && foundData.orgId && foundData.orgId !== user.orgId) {
                 throw new NotFoundException('Access Denied');
             }
-            return test.id;
-        }
-
-        // 3. Course (Curriculum)
-        // Usually courses don't have "start session" in the same way, but if they do:
-        const course = await this.prisma.course.findUnique({
-            where: { slug },
-            select: { id: true, orgId: true }
-        });
-        
-        if (course) {
-             if (user && user.role !== 'SUPER_ADMIN' && course.orgId && course.orgId !== user.orgId) {
-                throw new NotFoundException('Access Denied');
-            }
-            return course.id;
+            return foundData;
         }
 
         throw new NotFoundException('Exam not found');
     }
 
     async getExamBySlug(slug: string, user?: any) {
+        // PERFORMANCE: Check Cache
+        const cacheKey = `exam:content:${slug}`;
+        const cached = await this.redis.get(cacheKey);
+
+        let entity = cached ? JSON.parse(cached) : null;
+
+        if (entity) {
+            // ISOLATION CHECK from Cached Data
+             if (user && user.role !== 'SUPER_ADMIN') {
+                if (entity.orgId && entity.orgId !== user.orgId) {
+                    throw new NotFoundException('Assessment not found or access denied');
+                }
+             }
+             return this.transformExam(entity);
+        }
+
         // 1. Try finding in Standalone Exams
         const exam = await this.prisma.exam.findUnique({
             where: { slug, isActive: true },
         });
 
         if (exam) {
+            // Cache before check
+            await this.redis.set(cacheKey, JSON.stringify(exam), 'EX', 3600);
+
             // ISOLATION CHECK
             if (user && user.role !== 'SUPER_ADMIN') {
                 // If exam has Org, User must match. 
@@ -102,6 +130,10 @@ export class ExamService {
         });
 
         if (courseTest) {
+            const mappedTest = { ...courseTest, orgId: courseTest.course.orgId };
+            // Cache
+            await this.redis.set(cacheKey, JSON.stringify(mappedTest), 'EX', 3600);
+
             // ISOLATION CHECK from Course
             if (user && user.role !== 'SUPER_ADMIN') {
                 if (courseTest.course.orgId && courseTest.course.orgId !== user.orgId) {
@@ -142,12 +174,15 @@ export class ExamService {
     }
 
     async getPublicStatus(slug: string) {
+        console.log(`[ExamService] Checking public status for slug: ${slug}`);
+        
         const exam = await this.prisma.exam.findUnique({
             where: { slug, isActive: true },
             select: { title: true, startTime: true, duration: true, id: true, questions: true, totalMarks: true }
         });
 
         if (exam) {
+             console.log(`[ExamService] Found Exam: ${exam.title}`);
             const rawQuestions: any = exam.questions || {};
             let totalQuestions = 0;
             let totalSections = 0;
@@ -186,6 +221,7 @@ export class ExamService {
         });
 
         if (courseTest) {
+             console.log(`[ExamService] Found CourseTest: ${courseTest.title}`);
             let duration = 60;
             if (courseTest.startDate && courseTest.endDate) {
                 const diffMs = courseTest.endDate.getTime() - courseTest.startDate.getTime();
@@ -218,7 +254,7 @@ export class ExamService {
             };
         }
 
-        throw new NotFoundException('Exam not found');
+        throw new NotFoundException(`Exam not found for slug: ${slug}`);
     }
 
 
@@ -471,20 +507,22 @@ export class ExamService {
                 }
 
                 // CHECK FEEDBACK STATUS
-                const feedbackRecord = await this.prisma.feedback.findFirst({
-                    where: { userId, examId }
-                });
+            const feedbackRecord = await this.prisma.feedback.findFirst({
+                where: { userId, examId }
+            });
 
-                // Add violation counts to existing object
-                (existing as any).tabSwitchOutCount = existing.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
-                (existing as any).tabSwitchInCount = existing.violations.filter((v: any) => v.type === 'TAB_SWITCH_IN').length;
-                (existing as any).feedbackDone = !!feedbackRecord;
-                return existing;
-            }
+            // Add violation counts to existing object
+            (existing as any).tabSwitchOutCount = existing.violations.filter((v: any) => v.type === 'TAB_SWITCH' || v.type === 'TAB_SWITCH_OUT').length;
+            (existing as any).tabSwitchInCount = existing.violations.filter((v: any) => v.type === 'TAB_SWITCH_IN').length;
+            (existing as any).feedbackDone = !!feedbackRecord;
+            return existing;
+        }
 
-            return await this.prisma.examSession.create({
-                data: {
-                    userId,
+        console.log(`[ExamService] Creating new session for examId: ${examId}, userId: ${userId}`);
+
+        return await this.prisma.examSession.create({
+            data: {
+                userId,
                     examId,
                     ipAddress: ip,
                     deviceId,
@@ -500,6 +538,83 @@ export class ExamService {
 
     async getAppConfig() {
         return { version: '1.0.0', features: ['monitoring', 'lockdown'] };
+    }
+
+    async checkExamStatus(slug: string) {
+        // 1. Try Exam
+        const exam = await this.prisma.exam.findUnique({
+            where: { slug },
+            select: { id: true, title: true, slug: true, isActive: true, duration: true, questions: true }
+        });
+
+        if (exam) {
+            if (!exam.isActive) {
+                return { quiz: null, error: 'Exam is not active' };
+            }
+
+            // Calculate total questions lightweight
+            let totalQuestions = 0;
+            const rawQuestions: any = exam.questions || {};
+            if (rawQuestions.sections && Array.isArray(rawQuestions.sections)) {
+                rawQuestions.sections.forEach((s: any) => {
+                    if (Array.isArray(s.questions)) totalQuestions += s.questions.length;
+                });
+            } else if (Array.isArray(rawQuestions)) {
+                totalQuestions = rawQuestions.length;
+            } else if (Object.keys(rawQuestions).length > 0) {
+                 totalQuestions = Object.keys(rawQuestions).length;
+            }
+
+            return {
+                quiz: {
+                    id: exam.id,
+                    title: exam.title,
+                    slug: exam.slug,
+                    isActive: exam.isActive,
+                    duration: exam.duration * 60, // Normalize to seconds if stored in mins? Usually stored in mins. User sample says 3600 (seconds?). 
+                    // Let's assume stored in minutes, user wants seconds? 
+                    // "duration": 3600 -> 60 mins.
+                    // If DB has 60, return 3600? Let's assume DB is minutes.
+                    totalQuestions
+                },
+                error: null
+            };
+        }
+
+        // 2. Try CourseTest
+        const test = await this.prisma.courseTest.findUnique({
+             where: { slug },
+             select: { id: true, title: true, slug: true, questions: true }
+        });
+
+        if (test) {
+             // CourseTests don't have explicit 'isActive', assume date based or always active?
+             // Assuming active for now.
+             
+            let totalQuestions = 0;
+            const rawQuestions: any = test.questions || {};
+             if (rawQuestions.sections && Array.isArray(rawQuestions.sections)) {
+                rawQuestions.sections.forEach((s: any) => {
+                    if (Array.isArray(s.questions)) totalQuestions += s.questions.length;
+                });
+            } else if (Array.isArray(rawQuestions)) {
+                totalQuestions = rawQuestions.length;
+            }
+
+             return {
+                quiz: {
+                    id: test.id,
+                    title: test.title,
+                    slug: test.slug,
+                    isActive: true, 
+                    duration: 3600, // Default or fetch start/end difference
+                    totalQuestions
+                },
+                error: null
+            };
+        }
+
+        return { quiz: null, error: 'Exam not found' };
     }
 
     async getMonitoredStudents(examId: string) {

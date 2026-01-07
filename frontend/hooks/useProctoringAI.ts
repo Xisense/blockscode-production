@@ -54,6 +54,18 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
         let isMounted = true;
 
         async function loadModels() {
+            // Check global cache first
+            if ((window as any).__PROCTOR_MODELS__) {
+                 const { objectDetector, faceLandmarker } = (window as any).__PROCTOR_MODELS__;
+                 if (objectDetector && faceLandmarker) {
+                    objectDetectorRef.current = objectDetector;
+                    faceLandmarkerRef.current = faceLandmarker;
+                    setIsModelLoaded(true);
+                    console.log("[ProctoringAI] Models Restored from Cache");
+                    return;
+                 }
+            }
+
             try {
                 // Dynamic Import
                 const { FilesetResolver, ObjectDetector, FaceLandmarker } = await import('@mediapipe/tasks-vision');
@@ -89,6 +101,10 @@ export function useProctoringAI({ onViolation, active }: ProctoringConfig) {
                 if (isMounted) {
                     objectDetectorRef.current = objectDetector;
                     faceLandmarkerRef.current = faceLandmarker;
+                    
+                    // Simple global cache
+                    (window as any).__PROCTOR_MODELS__ = { objectDetector, faceLandmarker };
+
                     setIsModelLoaded(true);
                     console.log("[ProctoringAI] Models Loaded Successfully");
                 }

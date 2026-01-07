@@ -51,7 +51,7 @@ export default function SuperAdminOrganizationsPage() {
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
-            <Navbar />
+            <Navbar userRole="super-admin" />
 
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in">
                 {/* Header */}

@@ -99,7 +99,7 @@ export default function AdminProfilePage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-50/50">
-                <Navbar />
+                <Navbar userRole="admin" />
                 <div className="flex items-center justify-center h-[60vh]">
                     <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
@@ -109,7 +109,7 @@ export default function AdminProfilePage() {
 
     return (
         <div className="min-h-screen bg-slate-50/50 font-inter">
-            <Navbar />
+            <Navbar userRole="admin" />
 
             <main className="max-w-5xl mx-auto px-6 py-12">
                 <div className="bg-white rounded-3xl border border-slate-100 p-8 mb-8 shadow-sm flex flex-col md:flex-row items-center gap-8 animate-in fade-in slide-in-from-top-4 duration-500">

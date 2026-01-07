@@ -1,13 +1,34 @@
 import { AuthService } from "./AuthService";
+import { LRUCache } from 'lru-cache';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+// Use Proxy for Client-Side execution to ensure cookies are passed automatically
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
+
+// Cache configuration: Max 50 items, TTL 5 minutes
+const cache = new LRUCache<string, any>({
+    max: 50,
+    ttl: 1000 * 60 * 5, 
+});
 
 const getHeaders = () => {
-    const token = AuthService.getToken();
     return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Content-Type': 'application/json'
     };
+};
+
+// Helper for authorized fetch
+const authFetch = async (endpoint: string, options: RequestInit = {}) => {
+    // endpoint should be relative like '/student/stats'
+    const url = `${BASE_URL}${endpoint}`;
+    
+    return fetch(url, {
+        ...options,
+        credentials: 'include', // Ensure cookies are sent
+        headers: {
+            ...options.headers,
+            ...getHeaders()
+        }
+    });
 };
 
 export interface StudentStats {
@@ -26,13 +47,18 @@ export interface StudentModule {
 }
 
 export const StudentService = {
-    async getStats(): Promise<StudentStats> {
+    async getStats(forceRefresh = false): Promise<StudentStats> {
+        const cacheKey = 'student_stats';
+        if (!forceRefresh && cache.has(cacheKey)) {
+            return cache.get(cacheKey) as StudentStats;
+        }
+
         try {
-            const res = await fetch(`${BASE_URL}/student/stats`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/stats');
             if (!res.ok) throw new Error('Failed to fetch stats');
-            return await res.json();
+            const data = await res.json();
+            cache.set(cacheKey, data);
+            return data;
         } catch (error) {
             console.error('[StudentService] Failed to fetch stats', error);
             throw error;
@@ -41,9 +67,7 @@ export const StudentService = {
 
     async getModules(): Promise<StudentModule[]> {
         try {
-            const res = await fetch(`${BASE_URL}/student/modules`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/modules');
             if (!res.ok) throw new Error('Failed to fetch modules');
             return await res.json();
         } catch (error) {
@@ -52,61 +76,58 @@ export const StudentService = {
         }
     },
 
-    async getCourses() {
+    async getCourses(forceRefresh = false) {
+        const cacheKey = 'student_courses';
+        if (!forceRefresh && cache.has(cacheKey)) {
+            return cache.get(cacheKey);
+        }
+
         try {
-            const res = await fetch(`${BASE_URL}/student/courses`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/courses');
             if (!res.ok) throw new Error('Failed to fetch courses');
-            return await res.json();
+            const data = await res.json();
+            cache.set(cacheKey, data);
+            return data;
         } catch (error) {
-            console.error('[StudentService] Error', error);
+            // console.error('[StudentService] Error', error);
             throw error;
         }
     },
 
     async getAttempts() {
         try {
-            const res = await fetch(`${BASE_URL}/student/attempts`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/attempts');
             if (!res.ok) throw new Error('Failed to fetch attempts');
             return await res.json();
         } catch (error) {
-            console.error('[StudentService] Error', error);
+            // console.error('[StudentService] Error', error);
             throw error;
         }
     },
     async getExamResult(sessionId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/student/exam/${sessionId}/result`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/student/exam/${sessionId}/result`);
             if (!res.ok) throw new Error('Failed to fetch exam result');
             return await res.json();
         } catch (error) {
-            console.error('[StudentService] Error', error);
+            // console.error('[StudentService] Error', error);
             throw error;
         }
     },
     async getUnitAttempts() {
         try {
-            const res = await fetch(`${BASE_URL}/student/unit-attempts`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/unit-attempts');
             if (!res.ok) throw new Error('Failed to fetch unit attempts');
             return await res.json();
         } catch (error) {
-            console.error('[StudentService] Error', error);
+            // console.error('[StudentService] Error', error);
             throw error;
         }
     },
 
     async getAnalytics() {
         try {
-            const res = await fetch(`${BASE_URL}/student/analytics`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/analytics');
             if (!res.ok) throw new Error('Failed to fetch analytics');
             return await res.json();
         } catch (error) {
@@ -117,9 +138,7 @@ export const StudentService = {
 
     async getProfile() {
         try {
-            const res = await fetch(`${BASE_URL}/student/profile`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/profile');
             if (!res.ok) throw new Error('Failed to fetch profile');
             return await res.json();
         } catch (error) {
@@ -130,9 +149,8 @@ export const StudentService = {
 
     async updateProfile(data: { name?: string }) {
         try {
-            const res = await fetch(`${BASE_URL}/student/profile`, {
+            const res = await authFetch('/student/profile', {
                 method: 'PUT',
-                headers: getHeaders(),
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to update profile');
@@ -145,9 +163,7 @@ export const StudentService = {
 
     async getBookmarks() {
         try {
-            const res = await fetch(`${BASE_URL}/student/bookmarks`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch('/student/bookmarks');
             if (!res.ok) throw new Error('Failed to fetch bookmarks');
             return await res.json();
         } catch (error) {
@@ -158,9 +174,8 @@ export const StudentService = {
 
     async addBookmark(unitId: string, metadata?: any) {
         try {
-            const res = await fetch(`${BASE_URL}/student/bookmarks/${unitId}`, {
+            const res = await authFetch(`/student/bookmarks/${unitId}`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(metadata || {})
             });
             if (!res.ok) throw new Error('Failed to add bookmark');
@@ -173,13 +188,9 @@ export const StudentService = {
 
     async removeBookmark(unitId: string) {
         try {
-            const token = AuthService.getToken();
-            const res = await fetch(`${BASE_URL}/student/bookmarks/${unitId}`, {
+            const res = await authFetch(`/student/bookmarks/${unitId}`, {
                 method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                    // No Content-Type for DELETE requests
-                }
+                body: JSON.stringify({})
             });
             if (!res.ok) throw new Error('Failed to remove bookmark');
             return await res.json();
@@ -191,9 +202,7 @@ export const StudentService = {
 
     async getUnitSubmissions(unitId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/student/units/${unitId}/submissions`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/student/units/${unitId}/submissions`);
             if (!res.ok) throw new Error('Failed to fetch unit submissions');
             return await res.json();
         } catch (error) {
@@ -204,9 +213,8 @@ export const StudentService = {
 
     async submitUnit(unitId: string, data: { status: string; content: any; score?: number }) {
         try {
-            const res = await fetch(`${BASE_URL}/student/units/${unitId}/submit`, {
+            const res = await authFetch(`/student/units/${unitId}/submit`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to submit unit');
@@ -219,9 +227,7 @@ export const StudentService = {
 
     async getCourseProgress(slug: string) {
         try {
-            const res = await fetch(`${BASE_URL}/student/course/${slug}/progress`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/student/course/${slug}/progress`);
             if (!res.ok) throw new Error('Failed to fetch course progress');
             return await res.json();
         } catch (error) {

@@ -24,9 +24,9 @@ export default function Loading() {
 
                 {/* Inner Pulsing Logo/Brand */}
                 <div className="absolute flex items-center justify-center">
-                    <div className={`w-12 h-12 flex items-center justify-center overflow-hidden transition-all duration-500 ${!displayLogo ? 'bg-[var(--brand)] rounded-xl shadow-lg shadow-[var(--brand)]/30 p-1.5' : ''} animate-pulse`}>
+                    <div className={`w-12 h-12 relative flex items-center justify-center overflow-hidden transition-all duration-500 ${!displayLogo ? 'bg-[var(--brand)] rounded-xl shadow-lg shadow-[var(--brand)]/30 p-1.5' : ''} animate-pulse`}>
                         {displayLogo ? (
-                            <img src={displayLogo} alt="Logo" className="w-full h-full object-contain" />
+                            <Image src={displayLogo} alt="Logo" fill sizes="48px" className="object-contain" priority />
                         ) : (
                             <span className="text-white font-black text-xs">{displayText}</span>
                         )}

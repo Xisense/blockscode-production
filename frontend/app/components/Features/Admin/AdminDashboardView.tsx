@@ -47,33 +47,26 @@ interface AdminDashboardViewProps {
 
 import { AdminService } from "@/services/api/AdminService";
 import { useEffect, useState } from "react";
+import { useQuery } from "@/hooks/useQuery";
+import Loading from "@/app/loading";
 
 // ... (keep interface)
 
 export default function AdminDashboardView({ basePath = '/dashboard/admin', organizationId }: AdminDashboardViewProps) {
-    const [statsData, setStatsData] = useState<any>(null);
-    const [analyticsData, setAnalyticsData] = useState<any>(null);
-    const [liveStatus, setLiveStatus] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { data: dashboardData, isLoading: loading} = useQuery(`admin-dashboard-${organizationId || 'default'}`, async () => {
+        const [stats, analytics, logs] = await Promise.all([
+            AdminService.getStats(organizationId),
+            AdminService.getAnalytics(organizationId),
+            AdminService.getSystemLogs(organizationId)
+        ]);
+        return { stats, analytics, logs };
+    });
 
-    useEffect(() => {
-        async function load() {
-            try {
-                const [stats, analytics, logs] = await Promise.all([
-                    AdminService.getStats(organizationId),
-                    AdminService.getAnalytics(organizationId),
-                    AdminService.getSystemLogs(organizationId)
-                ]);
-                setStatsData(stats);
-                setAnalyticsData(analytics);
-                // For live status, we can use the active sessions from stats or fetch recent logs if needed
-                // But let's assume we want a more detailed "Live Status" preview
-                // For now, let's use the active sessions count and maybe some recent sessions
-            } catch (e) { console.error(e); }
-            finally { setLoading(false); }
-        }
-        load();
-    }, [organizationId]);
+    const statsData = dashboardData?.stats;
+    const analyticsData = dashboardData?.analytics;
+
+    // Show loading ONLY if no data exists (first load)
+    if (loading && !statsData) return <Loading />;
 
     const stats = [
         { label: "Total Users", value: statsData?.totalUsers?.toString() || "0", change: "Total", icon: <Users size={20} />, color: "bg-[var(--brand-light)] text-[var(--brand)]" },

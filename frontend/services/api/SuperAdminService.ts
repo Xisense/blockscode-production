@@ -1,21 +1,29 @@
 import { AuthService } from "./AuthService";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
-const getHeaders = () => {
-    const token = AuthService.getToken();
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+const authFetch = (endpoint: string, options: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+        ...(options.headers || {}) as any
     };
+
+    // Only set Content-Type to application/json if there is a body 
+    // and it's not a FormData object (which sets its own Content-Type)
+    if (options.body && typeof options.body === 'string') {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    return fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        credentials: 'include',
+        headers
+    });
 };
 
 export const SuperAdminService = {
     async getStats() {
         try {
-            const res = await fetch(`${BASE_URL}/super-admin/stats`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/super-admin/stats`);
             if (!res.ok) throw new Error('Failed to fetch stats');
             return await res.json();
         } catch (error) {
@@ -26,9 +34,7 @@ export const SuperAdminService = {
 
     async getOrganizations() {
         try {
-            const res = await fetch(`${BASE_URL}/super-admin/organizations`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/super-admin/organizations`);
             if (!res.ok) throw new Error('Failed to fetch organizations');
             return await res.json();
         } catch (error) {
@@ -39,9 +45,7 @@ export const SuperAdminService = {
 
     async getOrganization(id: string) {
         try {
-            const res = await fetch(`${BASE_URL}/super-admin/organizations/${id}`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/super-admin/organizations/${id}`);
             if (!res.ok) throw new Error('Failed to fetch organization');
             return await res.json();
         } catch (error) {
@@ -52,11 +56,6 @@ export const SuperAdminService = {
 
     async createOrganization(data: any) {
         try {
-            const headers = getHeaders();
-            // Remove Content-Type to let browser set it with boundary for FormData
-            // @ts-ignore
-            delete headers['Content-Type'];
-
             const formData = new FormData();
             Object.keys(data).forEach(key => {
                 if (data[key] !== undefined && data[key] !== null) {
@@ -64,9 +63,10 @@ export const SuperAdminService = {
                 }
             });
 
+            // Use direct fetch for FormData to avoid Content-Type conflict
             const res = await fetch(`${BASE_URL}/super-admin/organizations`, {
                 method: 'POST',
-                headers: headers as any,
+                credentials: 'include',
                 body: formData
             });
             if (!res.ok) throw new Error('Failed to create organization');
@@ -79,9 +79,8 @@ export const SuperAdminService = {
 
     async updateOrganization(id: string, data: any) {
         try {
-            const res = await fetch(`${BASE_URL}/super-admin/organizations/${id}`, {
+            const res = await authFetch(`/super-admin/organizations/${id}`, {
                 method: 'PUT',
-                headers: getHeaders(),
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to update organization');
@@ -94,13 +93,8 @@ export const SuperAdminService = {
 
     async deleteOrganization(id: string) {
         try {
-            const headers = getHeaders();
-            // @ts-ignore
-            delete headers['Content-Type']; // Fastify throws 400 if Content-Type is json but body is empty
-
-            const res = await fetch(`${BASE_URL}/super-admin/organizations/${id}`, {
-                method: 'DELETE',
-                headers: headers
+            const res = await authFetch(`/super-admin/organizations/${id}`, {
+                method: 'DELETE'
             });
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({}));
@@ -121,9 +115,7 @@ export const SuperAdminService = {
                 search
             }).toString();
 
-            const res = await fetch(`${BASE_URL}/super-admin/users?${query}`, {
-                headers: getHeaders()
-            });
+            const res = await authFetch(`/super-admin/users?${query}`);
             if (!res.ok) throw new Error('Failed to fetch users');
             return await res.json();
         } catch (error) {
@@ -134,9 +126,8 @@ export const SuperAdminService = {
 
     async updateUser(id: string, data: any) {
         try {
-            const res = await fetch(`${BASE_URL}/super-admin/users/${id}`, {
+            const res = await authFetch(`/super-admin/users/${id}`, {
                 method: 'PUT',
-                headers: getHeaders(),
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to update user');
@@ -149,13 +140,8 @@ export const SuperAdminService = {
 
     async deleteUser(id: string) {
         try {
-            const headers = getHeaders();
-            // @ts-ignore
-            delete headers['Content-Type'];
-
-            const res = await fetch(`${BASE_URL}/super-admin/users/${id}`, {
-                method: 'DELETE',
-                headers: headers
+            const res = await authFetch(`/super-admin/users/${id}`, {
+                method: 'DELETE'
             });
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({}));

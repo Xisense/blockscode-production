@@ -5,43 +5,38 @@ import Navbar from "@/app/components/Navbar";
 import { StudentService, StudentModule, StudentStats } from "@/services/api/StudentService";
 import { requireAuthClient } from "@/hooks/requireAuthClient";
 import Loading from "@/app/loading";
+import { useQuery } from "@/hooks/useQuery";
+import { useDebounce } from "@/hooks/useDebounce";
 
 export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [stats, setStats] = useState<StudentStats | null>(null);
-  const [modules, setModules] = useState<StudentModule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  
+  // Auth Check
+  useEffect(() => { requireAuthClient("/login"); }, []);
 
-  useEffect(() => {
-    if (!requireAuthClient("/login")) return;
-    setAuthChecked(true);
-    async function loadDashboard() {
-      try {
-        const [statsData, coursesData] = await Promise.all([
+  // Optimized Data Fetching with Cache
+  const { data: dashboardData, isLoading: loading } = useQuery('student-dashboard', async () => {
+      const [stats, courses] = await Promise.all([
           StudentService.getStats(),
           StudentService.getCourses()
-        ]);
-        setStats(statsData);
-        setModules(coursesData);
-      } catch (e) {
-        console.error("Failed to load dashboard data", e);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadDashboard();
-  }, []);
+      ]);
+      return { stats, courses };
+  });
 
-  const filteredModules = modules.filter(m =>
-    m.title.toLowerCase().includes(searchQuery.toLowerCase())
+  const stats = dashboardData?.stats || null;
+  const modules: StudentModule[] = dashboardData?.courses || [];
+
+  const filteredModules = modules.filter((m) =>
+    m.title.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
   );
 
-  if (!authChecked || loading) return <Loading />;
+  // Show loading only if no data at all (first load)
+  if (loading && !stats) return <Loading />;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans selection:bg-orange-100 selection:text-orange-900">
-      <Navbar />
+      <Navbar userRole="student" />
 
       <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in">
 

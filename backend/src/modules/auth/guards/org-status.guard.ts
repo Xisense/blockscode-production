@@ -1,9 +1,14 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../services/prisma/prisma.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class OrgStatusGuard implements CanActivate {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        @InjectRedis() private readonly redis: Redis
+    ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest();
@@ -19,6 +24,19 @@ export class OrgStatusGuard implements CanActivate {
             return true;
         }
 
+        const cacheKey = `org:status:${user.orgId}`;
+        const cachedData = await this.redis.get(cacheKey);
+
+        if (cachedData) {
+            const org = JSON.parse(cachedData);
+            if (org.status !== 'Active') {
+                throw new ForbiddenException(
+                    `This organization (${org.name}) is currently ${org.status.toLowerCase()}. Please contact support.`
+                );
+            }
+            return true;
+        }
+
         // Fetch organization status
         const org = await this.prisma.organization.findUnique({
             where: { id: user.orgId },
@@ -28,6 +46,9 @@ export class OrgStatusGuard implements CanActivate {
         if (!org) {
             throw new ForbiddenException('Organization not found');
         }
+
+        // Cache the result for 15 minutes to reduce DB load
+        await this.redis.set(cacheKey, JSON.stringify(org), 'EX', 900);
 
         if (org.status !== 'Active') {
             throw new ForbiddenException(

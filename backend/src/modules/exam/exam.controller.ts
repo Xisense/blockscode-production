@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Req, UseGuards, Query, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Req, UseGuards, Query, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ExamService } from './exam.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { User } from '../auth/user.decorator';
@@ -26,15 +26,17 @@ export class ExamController {
 
     @Get(':slug/public-status')
     async getPublicStatus(@Param('slug') slug: string) {
-        // This might arguably need to be public for "Check if exam exists" before login?
-        // But if strict isolation, even existence is hidden.
-        // For now, let's keep it open or check requirement. 
-        // "users... cannot be accessed from another organization".
-        // If I try to access org-a-exam as org-b-user, I shouldn't see it.
-        // But pre-login, I am anonymous.
-        // Let's assume metadata is public IF we have the link? 
-        // Or requiring login first.
+        // console.log('[ExamController] getPublicStatus slug:', slug);
         return this.examService.getPublicStatus(slug);
+    }
+
+    @Get(':slug/check')
+    async checkExam(@Param('slug') slug: string, @Query('json') json: string) {
+        // Require ?json=1 parameter
+        if (!json) {
+            return { error: 'json=1 parameter required' };
+        }
+        return this.examService.checkExamStatus(slug);
     }
 
     // Protected Routes
@@ -51,11 +53,19 @@ export class ExamController {
         }
 
         // OPTIMIZATION: Use lightweight ID lookup instead of full transform
-        const examId = await this.examService.getExamIdBySlug(slug, user);
+        const lookup: any = await this.examService.getExamIdBySlug(slug, user);
+        console.log(`[ExamController] Lookup for slug ${slug}:`, lookup);
+
+        if (!lookup || lookup.type !== 'exam') {
+             // If it's a test/course, we might need a different handling strategy.
+             // For now, fail gracefully rather than crashing with FK error.
+             throw new BadRequestException('Assessment type does not support live sessions');
+        }
+
         const ip = req.ip;
 
         // Pass userId, deviceId, tabId, and metadata to startSession
-        return this.examService.startSession(user.id, examId, ip, body.deviceId, body.tabId, body.metadata);
+        return this.examService.startSession(user.id, lookup.id, ip, body.deviceId, body.tabId, body.metadata);
     }
 
     @Post()

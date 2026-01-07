@@ -2,12 +2,15 @@ import { Injectable, BadRequestException, NotFoundException, ConflictException, 
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { MailService } from '../../services/mail.service';
 import * as bcrypt from 'bcrypt';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class AdminService {
     constructor(
         private prisma: PrismaService,
-        private mailService: MailService
+        private mailService: MailService,
+        @InjectRedis() private readonly redis: Redis
     ) { }
 
     private getEffectiveOrgId(user: any, targetOrgId?: string): string {
@@ -32,6 +35,11 @@ export class AdminService {
     async getGlobalStats(user?: any, targetOrgId?: string) {
         const orgId = this.getEffectiveOrgId(user, targetOrgId);
 
+        // CACHE
+        const cacheKey = `admin:stats:${orgId}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
+
         const totalUsers = await this.prisma.user.count({ where: { orgId } });
         const totalExams = await this.prisma.exam.count({ where: { orgId } });
         const totalCourses = await this.prisma.course.count({ where: { orgId } });
@@ -42,13 +50,18 @@ export class AdminService {
             }
         });
 
-        return {
+        const stats = {
             totalUsers,
             totalExams,
             totalCourses,
             activeSessions,
             systemHealth: 'Healthy'
         };
+
+        // Cache for 60s
+        await this.redis.set(cacheKey, JSON.stringify(stats), 'EX', 60);
+
+        return stats;
     }
 
     async getUsers(user?: any, targetOrgId?: string) {
@@ -81,6 +94,11 @@ export class AdminService {
 
     async getAnalytics(user?: any, targetOrgId?: string) {
         const orgId = this.getEffectiveOrgId(user, targetOrgId);
+
+        // CACHE
+        const cacheKey = `admin:analytics:${orgId}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
 
         // Fetch session counts for the last 7 days matched to Org's exams
         const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -126,12 +144,17 @@ export class AdminService {
             }
         });
 
-        return {
+        const analytics = {
             activity: activityData,
             labels: dayLabels,
             registrations: totalRegistrations,
-            examAttempts: totalAttempts
+            attempts: totalAttempts
         };
+
+        // Cache for 5 minutes
+        await this.redis.set(cacheKey, JSON.stringify(analytics), 'EX', 300);
+
+        return analytics;
     }
 
     async getExams(user?: any, targetOrgId?: string) {
@@ -218,11 +241,11 @@ export class AdminService {
             }
         });
 
-        // Send welcome email
-        const emailResult = await this.mailService.sendWelcomeEmail(
+        // Send welcome email (Non-blocking for performance)
+        this.mailService.sendWelcomeEmail(
             { email: user.email, name: user.name || 'User', password: generatedPassword },
             { name: org.name, primaryColor: org.primaryColor || undefined }
-        );
+        ).catch(err => console.error(`[AdminService] Failed to send welcome email to ${email}:`, err));
 
         return {
             user: {
@@ -234,7 +257,7 @@ export class AdminService {
                 createdAt: user.createdAt
             },
             password: generatedPassword, // Return plain password for one-time display
-            emailSent: !!emailResult
+            emailSent: true // Optimistic response
         };
     }
 

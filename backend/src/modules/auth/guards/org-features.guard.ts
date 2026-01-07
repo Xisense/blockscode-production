@@ -1,12 +1,15 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../../services/prisma/prisma.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class OrgFeaturesGuard implements CanActivate {
     constructor(
         private reflector: Reflector,
-        private prisma: PrismaService
+        private prisma: PrismaService,
+        @InjectRedis() private readonly redis: Redis
     ) { }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -28,18 +31,30 @@ export class OrgFeaturesGuard implements CanActivate {
             throw new ForbiddenException('Organization context required');
         }
 
-        // Fetch organization features
-        const org = await this.prisma.organization.findUnique({
-            where: { id: user.orgId },
-            select: { features: true }
-        });
+        const cacheKey = `org:features:${user.orgId}`;
+        const cachedData = await this.redis.get(cacheKey);
+        let features: any = null;
 
-        if (!org || !org.features) {
+        if (cachedData !== null) {
+            features = JSON.parse(cachedData);
+        } else {
+            // Fetch organization features
+            const org = await this.prisma.organization.findUnique({
+                where: { id: user.orgId },
+                select: { features: true }
+            });
+
+            features = org?.features || null;
+            
+            // Cache for 30 minutes
+            await this.redis.set(cacheKey, JSON.stringify(features), 'EX', 1800);
+        }
+
+        if (!features) {
             // No features defined = allow all (backward compatibility)
             return true;
         }
 
-        const features = org.features as any;
         const isFeatureEnabled = features[requiredFeature];
 
         if (isFeatureEnabled === false) {

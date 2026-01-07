@@ -1,7 +1,12 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import CodeEditor from "../Editor/CodeEditor";
+import dynamic from "next/dynamic";
 import { LanguageConfig } from "../Editor/types";
+
+const CodeEditor = dynamic(() => import("../Editor/CodeEditor"), {
+  loading: () => <div className="h-full bg-slate-50 animate-pulse" />,
+  ssr: false
+});
 import { python } from "@codemirror/lang-python";
 import { TerminalSquare, Play, Plus, Trash2, RotateCcw, AlertCircle } from "lucide-react";
 

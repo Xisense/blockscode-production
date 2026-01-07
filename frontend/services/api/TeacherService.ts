@@ -3,13 +3,22 @@ import { AuthService } from "./AuthService";
 // Use local proxy for client-side functionality to ensure cookies are sent
 const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
-const getHeaders = (hasBody = true) => {
-    // We no longer manually attach the token, the Proxy (or server) does it via Cookie
-    const headers: any = {};
-    if (hasBody) {
+const authFetch = (endpoint: string, options: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+        ...(options.headers || {}) as any
+    };
+
+    // Only set Content-Type to application/json if there is a body 
+    // and it's not a FormData object
+    if (options.body && typeof options.body === 'string') {
         headers['Content-Type'] = 'application/json';
     }
-    return headers;
+
+    return fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        credentials: 'include',
+        headers
+    });
 };
 
 export interface Student {
@@ -37,9 +46,7 @@ export interface Student {
 export const TeacherService = {
     async getStats() {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/stats`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch('/teacher/stats');
             if (!res.ok) throw new Error('Failed to fetch stats');
             return await res.json();
         } catch (error) {
@@ -50,9 +57,7 @@ export const TeacherService = {
 
     async getModules() {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/modules`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch('/teacher/modules');
             if (!res.ok) throw new Error('Failed to fetch modules');
             return await res.json();
         } catch (error) {
@@ -63,9 +68,7 @@ export const TeacherService = {
 
     async getRecentSubmissions() {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/submissions/recent`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch('/teacher/submissions/recent');
             if (!res.ok) throw new Error('Failed to fetch submissions');
             return await res.json();
         } catch (error) {
@@ -76,9 +79,7 @@ export const TeacherService = {
 
     async getSubmission(examId: string, userId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/submissions/${userId}`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch(`/teacher/exams/${examId}/submissions/${userId}`);
             if (!res.ok) throw new Error('Failed to fetch submission');
             return await res.json();
         } catch (error) {
@@ -89,9 +90,7 @@ export const TeacherService = {
 
     async getStudents() {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/students`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch('/teacher/students');
             if (!res.ok) throw new Error('Failed to fetch students');
             return await res.json();
         } catch (error) {
@@ -102,7 +101,7 @@ export const TeacherService = {
 
     async getStudentAnalytics(studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/students/${studentId}/analytics`, { headers: getHeaders(false) });
+            const res = await authFetch(`/teacher/students/${studentId}/analytics`);
             if (!res.ok) throw new Error('Failed to fetch student analytics');
             return await res.json();
         } catch (error) {
@@ -113,7 +112,7 @@ export const TeacherService = {
 
     async getStudentAttempts(studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/students/${studentId}/attempts`, { headers: getHeaders(false) });
+            const res = await authFetch(`/teacher/students/${studentId}/attempts`);
             if (!res.ok) throw new Error('Failed to fetch student attempts');
             return await res.json();
         } catch (error) {
@@ -124,7 +123,7 @@ export const TeacherService = {
 
     async getStudentUnitSubmissions(studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/students/${studentId}/unit-submissions`, { headers: getHeaders(false) });
+            const res = await authFetch(`/teacher/students/${studentId}/unit-submissions`);
             if (!res.ok) throw new Error('Failed to fetch student unit submissions');
             return await res.json();
         } catch (error) {
@@ -135,9 +134,9 @@ export const TeacherService = {
 
     async enrollStudent(courseId: string, studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/courses/${courseId}/enroll/${studentId}`, {
+            const res = await authFetch(`/teacher/courses/${courseId}/enroll/${studentId}`, {
                 method: 'POST',
-                headers: getHeaders(false)
+                body: JSON.stringify({})
             });
             if (!res.ok) throw new Error('Failed to enroll student');
             return await res.json();
@@ -149,9 +148,8 @@ export const TeacherService = {
 
     async enrollByEmails(courseId: string, emails: string[]) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/courses/${courseId}/enroll`, {
+            const res = await authFetch(`/teacher/courses/${courseId}/enroll`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify({ emails })
             });
             if (!res.ok) throw new Error('Failed to enroll students');
@@ -164,9 +162,9 @@ export const TeacherService = {
 
     async unenrollStudent(courseId: string, studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/courses/${courseId}/enroll/${studentId}`, {
+            const res = await authFetch(`/teacher/courses/${courseId}/enroll/${studentId}`, {
                 method: 'DELETE',
-                headers: getHeaders(false)
+                body: JSON.stringify({})
             });
             if (!res.ok) throw new Error('Failed to unenroll student');
             return await res.json();
@@ -178,9 +176,7 @@ export const TeacherService = {
 
     async getCourses() {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/courses`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch('/teacher/courses');
             if (!res.ok) throw new Error('Failed to fetch courses');
             return await res.json();
         } catch (error) {
@@ -191,9 +187,7 @@ export const TeacherService = {
 
     async getCourse(id: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/courses/${id}`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch(`/teacher/courses/${id}`);
             if (!res.ok) throw new Error('Failed to fetch course');
             const data = await res.json();
 
@@ -237,9 +231,8 @@ export const TeacherService = {
                 }))
             };
 
-            const res = await fetch(`${BASE_URL}/teacher/courses`, {
+            const res = await authFetch('/teacher/courses', {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(payload)
             });
             if (!res.ok) throw new Error('Failed to create course');
@@ -277,9 +270,8 @@ export const TeacherService = {
                 }))
             };
 
-            const res = await fetch(`${BASE_URL}/teacher/courses/${id}`, {
+            const res = await authFetch(`/teacher/courses/${id}`, {
                 method: 'PUT',
-                headers: getHeaders(),
                 body: JSON.stringify(payload)
             });
             if (!res.ok) throw new Error('Failed to update course');
@@ -292,9 +284,9 @@ export const TeacherService = {
 
     async deleteCourse(id: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/courses/${id}`, {
+            const res = await authFetch(`/teacher/courses/${id}`, {
                 method: 'DELETE',
-                headers: getHeaders(false)
+                body: JSON.stringify({})
             });
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({}));
@@ -309,9 +301,7 @@ export const TeacherService = {
 
     async getExams() {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch('/teacher/exams');
             if (!res.ok) throw new Error('Failed to fetch exams');
             return await res.json();
         } catch (error) {
@@ -322,9 +312,7 @@ export const TeacherService = {
 
     async getExam(id: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${id}`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch(`/teacher/exams/${id}`);
             if (!res.ok) throw new Error('Failed to fetch exam');
             const data = await res.json();
 
@@ -350,9 +338,8 @@ export const TeacherService = {
                 isActive: data.isVisible ?? true
             };
 
-            const res = await fetch(`${BASE_URL}/teacher/exams`, {
+            const res = await authFetch('/teacher/exams', {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(payload)
             });
             if (!res.ok) {
@@ -368,9 +355,8 @@ export const TeacherService = {
 
     async updateExam(id: string, data: any) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${id}`, {
+            const res = await authFetch(`/teacher/exams/${id}`, {
                 method: 'PUT',
-                headers: getHeaders(),
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to update exam');
@@ -383,9 +369,9 @@ export const TeacherService = {
 
     async deleteExam(id: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${id}`, {
+            const res = await authFetch(`/teacher/exams/${id}`, {
                 method: 'DELETE',
-                headers: getHeaders(false)
+                body: JSON.stringify({})
             });
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({}));
@@ -400,9 +386,7 @@ export const TeacherService = {
 
     async getMonitoredStudents(examId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/monitor`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch(`/teacher/exams/${examId}/monitor`);
             if (!res.ok) throw new Error('Failed to fetch active students');
             return await res.json();
         } catch (error) {
@@ -413,9 +397,7 @@ export const TeacherService = {
 
     async getFeedbacks(examId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/feedbacks`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch(`/teacher/exams/${examId}/feedbacks`);
             if (!res.ok) throw new Error('Failed to fetch feedbacks');
             return await res.json();
         } catch (error) {
@@ -426,9 +408,9 @@ export const TeacherService = {
 
     async terminateSession(examId: string, studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/terminate/${studentId}`, {
+            const res = await authFetch(`/teacher/exams/${examId}/terminate/${studentId}`, {
                 method: 'POST',
-                headers: getHeaders(false)
+                body: JSON.stringify({}) // Fastify requires body for POST content-type application/json
             });
             if (!res.ok) throw new Error('Failed to terminate session');
             return await res.json();
@@ -440,11 +422,11 @@ export const TeacherService = {
 
     async unterminateSession(examId: string, studentId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/unterminate/${studentId}`, {
+            const res = await authFetch(`/teacher/exams/${examId}/unterminate/${studentId}`, {
                 method: 'POST',
-                headers: getHeaders(false)
+                body: JSON.stringify({})
             });
-            if (!res.ok) throw new Error('Failed to unterminate session');
+            if (!res.ok) throw new Error('Failed to restore session');
             return await res.json();
         } catch (error) {
             console.error('[TeacherService] Error', error);
@@ -454,9 +436,7 @@ export const TeacherService = {
 
     async getExamResults(examId: string, page = 1, limit = 50) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/results?page=${page}&limit=${limit}`, {
-                headers: getHeaders(false)
-            });
+            const res = await authFetch(`/teacher/exams/${examId}/results?page=${page}&limit=${limit}`);
             if (!res.ok) throw new Error('Failed to fetch exam results');
             return await res.json();
         } catch (error) {
@@ -467,9 +447,8 @@ export const TeacherService = {
 
     async updateSubmissionScore(examId: string, sessionId: string, score: number, internalMarks?: Record<string, number>) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/submissions/${sessionId}/score`, {
+            const res = await authFetch(`/teacher/exams/${examId}/submissions/${sessionId}/score`, {
                 method: 'PUT',
-                headers: getHeaders(),
                 body: JSON.stringify({ score, internalMarks })
             });
             if (!res.ok) throw new Error('Failed to update score');
@@ -482,9 +461,8 @@ export const TeacherService = {
 
     async publishResults(examId: string) {
         try {
-            const res = await fetch(`${BASE_URL}/teacher/exams/${examId}/publish`, {
-                method: 'POST',
-                headers: getHeaders(false)
+            const res = await authFetch(`/teacher/exams/${examId}/publish`, {
+                method: 'POST'
             });
             if (!res.ok) throw new Error('Failed to publish results');
             return await res.json();

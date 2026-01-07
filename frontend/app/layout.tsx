@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 import { ToastProvider } from "./components/Common/Toast";
 import { OrganizationProvider } from "./context/OrganizationContext";
 import { Toaster } from "@/components/ui/toaster";
+import NextTopLoader from "nextjs-toploader";
 
 export default function RootLayout({
   children,
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <NextTopLoader color="#4394FF" showSpinner={false} speed={400} />
         <OrganizationProvider>
           <ToastProvider>
             {children}

@@ -89,6 +89,12 @@ export default function ExamLoginPage() {
             }
 
             const data = result; // maintain structure
+            
+            // Store user object for client-side context (ExamPage checks this)
+            if (data.user) {
+                localStorage.setItem('user', JSON.stringify(data.user));
+            }
+
             const targetSlug = data.exam?.slug || slugFromQuery;
             if (targetSlug) {
                 // Store student metadata for session initialization (Non-sensitive display info)

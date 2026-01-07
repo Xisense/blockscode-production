@@ -1,4 +1,10 @@
 const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
+import { LRUCache } from 'lru-cache';
+
+const sessionCache = new LRUCache<string, any>({
+    max: 1,
+    ttl: 1000 * 60 * 2, // 2 minutes cache for session check
+});
 
 export const AuthService = {
     // Legacy: getToken is deprecated as we use HttpOnly cookies
@@ -46,13 +52,15 @@ export const AuthService = {
         }
     },
 
-    async checkSession(): Promise<any> {
+    async checkSession(force = false): Promise<any> {
         try {
-            const token = this.getToken();
-            if (!token) return null;
+            if (!force && sessionCache.has('me')) {
+                return sessionCache.get('me');
+            }
 
             const res = await fetch(`${BASE_URL}/auth/me`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include' // Send cookies
             });
 
             if (!res.ok) {
@@ -71,6 +79,9 @@ export const AuthService = {
                 ...this.getUser(),
                 ...userData
             }));
+            
+            sessionCache.set('me', userData);
+            
             return userData;
         } catch (error) {
             console.error('[AuthService] Session check skipped (offline or error)');
@@ -118,7 +129,6 @@ export const AuthService = {
     },
 
     async updateProfile(data: { name?: string; profilePicture?: File }): Promise<any> {
-        const token = this.getToken();
         const formData = new FormData();
         
         if (data.name) formData.append('name', data.name);
@@ -126,9 +136,8 @@ export const AuthService = {
 
         const res = await fetch(`${BASE_URL}/auth/profile`, {
             method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            },
+            // Do NOT set Content-Type for FormData, browser sets it with boundary
+            credentials: 'include',
             body: formData
         });
 
@@ -144,13 +153,12 @@ export const AuthService = {
     },
 
     async changePassword(data: { currentPass: string; newPass: string }): Promise<any> {
-        const token = this.getToken();
         const res = await fetch(`${BASE_URL}/auth/change-password`, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Content-Type': 'application/json'
             },
+            credentials: 'include',
             body: JSON.stringify(data)
         });
 

@@ -1,22 +1,23 @@
 import { AuthService } from "./AuthService";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
-const getHeaders = () => {
-    const token = AuthService.getToken();
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-    };
+const authFetch = (endpoint: string, options: RequestInit = {}) => {
+    return fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {}) as any
+        }
+    });
 };
 
 export const AdminService = {
     async getStats(orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/stats?orgId=${orgId}` : `${BASE_URL}/admin/stats`;
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/stats${query}`);
             if (!res.ok) throw new Error('Failed to fetch admin stats');
             return await res.json();
         } catch (error) {
@@ -27,10 +28,8 @@ export const AdminService = {
 
     async getUsers(orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/users?orgId=${orgId}` : `${BASE_URL}/admin/users`;
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/users${query}`);
             if (!res.ok) throw new Error('Failed to fetch users');
             return await res.json();
         } catch (error) {
@@ -41,10 +40,9 @@ export const AdminService = {
 
     async createUser(userData: any, orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/users?orgId=${orgId}` : `${BASE_URL}/admin/users`;
-            const res = await fetch(url, {
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/users${query}`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(userData)
             });
             if (!res.ok) {
@@ -60,10 +58,9 @@ export const AdminService = {
 
     async createUsersBulk(users: any[], orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/users/bulk?orgId=${orgId}` : `${BASE_URL}/admin/users/bulk`;
-            const res = await fetch(url, {
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/users/bulk${query}`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify({ users })
             });
             if (!res.ok) {
@@ -79,10 +76,8 @@ export const AdminService = {
 
     async getSystemLogs(orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/logs?orgId=${orgId}` : `${BASE_URL}/admin/logs`;
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/logs${query}`);
             if (!res.ok) throw new Error('Failed to fetch logs');
             return await res.json();
         } catch (error) {
@@ -93,10 +88,8 @@ export const AdminService = {
 
     async getAnalytics(orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/analytics?orgId=${orgId}` : `${BASE_URL}/admin/analytics`;
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/analytics${query}`);
             if (!res.ok) throw new Error('Failed to fetch analytics');
             return await res.json();
         } catch (error) {
@@ -107,10 +100,8 @@ export const AdminService = {
 
     async getExams(orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/exams?orgId=${orgId}` : `${BASE_URL}/admin/exams`;
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/exams${query}`);
             if (!res.ok) throw new Error('Failed to fetch admin exams');
             return await res.json();
         } catch (error) {
@@ -121,10 +112,8 @@ export const AdminService = {
 
     async getCourses(orgId?: string) {
         try {
-            const url = orgId ? `${BASE_URL}/admin/courses?orgId=${orgId}` : `${BASE_URL}/admin/courses`;
-            const res = await fetch(url, {
-                headers: getHeaders()
-            });
+            const query = orgId ? `?orgId=${orgId}` : '';
+            const res = await authFetch(`/admin/courses${query}`);
             if (!res.ok) throw new Error('Failed to fetch admin courses');
             return await res.json();
         } catch (error) {
@@ -135,9 +124,8 @@ export const AdminService = {
 
     async toggleUserStatus(id: string) {
         try {
-            const res = await fetch(`${BASE_URL}/admin/users/${id}/status`, {
+            const res = await authFetch(`/admin/users/${id}/status`, {
                 method: 'PATCH',
-                headers: getHeaders(),
                 body: JSON.stringify({})
             });
             if (!res.ok) {
@@ -153,13 +141,9 @@ export const AdminService = {
 
     async deleteUser(id: string) {
         try {
-            const headers = getHeaders();
-            // Remove Content-Type for DELETE if no body is sent, as it can cause 400 in some Fastify setups
-            delete (headers as any)['Content-Type'];
-
-            const res = await fetch(`${BASE_URL}/admin/users/${id}`, {
+            const res = await authFetch(`/admin/users/${id}`, {
                 method: 'DELETE',
-                headers: headers
+                body: JSON.stringify({}) // Fastify requires a body if Content-Type is application/json
             });
             if (!res.ok) {
                 const text = await res.text();

@@ -114,7 +114,7 @@ export default function ProfilePage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-50/50">
-                <Navbar />
+                <Navbar userRole="student" />
                 <div className="flex items-center justify-center h-[60vh]">
                     <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
@@ -124,7 +124,7 @@ export default function ProfilePage() {
 
     return (
         <div className="min-h-screen bg-slate-50/50 font-inter">
-            <Navbar />
+            <Navbar userRole="student" />
 
             <main className="max-w-5xl mx-auto px-6 py-12">
                 {/* Profile Header Card */}

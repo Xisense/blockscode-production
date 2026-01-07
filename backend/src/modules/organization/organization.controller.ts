@@ -1,13 +1,23 @@
 import { Controller, Get, Query, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Controller('organization')
 export class OrganizationController {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        @InjectRedis() private readonly redis: Redis
+    ) { }
 
     @Get('public')
     async getPublicOrg(@Query('domain') domain: string) {
         if (!domain) throw new NotFoundException('Domain required');
+
+        // CACHE
+        const cacheKey = `org:public:${domain.toLowerCase()}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
 
         const org = await this.prisma.organization.findFirst({
             where: {
@@ -48,9 +58,12 @@ export class OrganizationController {
             });
 
             if (!orgBySub) throw new NotFoundException('Organization not found');
+            
+            await this.redis.set(cacheKey, JSON.stringify(orgBySub), 'EX', 3600);
             return orgBySub;
         }
 
+        await this.redis.set(cacheKey, JSON.stringify(org), 'EX', 3600);
         return org;
     }
 }

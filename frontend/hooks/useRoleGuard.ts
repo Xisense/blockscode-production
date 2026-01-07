@@ -8,11 +8,11 @@ export function useRoleGuard(allowedRoles: string[]) {
     const [isAuthorized, setIsAuthorized] = useState(false);
 
     useEffect(() => {
-        const token = AuthService.getToken();
+        // Soft check only - strict check matches happen via API cookies
         const user = AuthService.getUser();
         const role = user?.role;
 
-        if (!token || !user) {
+        if (!user) {
             router.push("/login");
             return;
         }

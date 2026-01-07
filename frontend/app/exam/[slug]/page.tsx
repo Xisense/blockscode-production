@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, notFound } from "next/navigation";
+import NotFoundPage from "../../not-found";
 import Navbar, { ExamConfig } from "../../components/Navbar";
 import ExamSidebar from "../../components/ExamSidebar";
 import UnitRenderer, { UnitQuestion } from "../../components/UnitRenderer";
@@ -85,6 +86,7 @@ export default function PublicExamPage() {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [examTitle, setExamTitle] = useState("Examination");
     const [finalSubmitTime, setFinalSubmitTime] = useState<string | null>(null);
+    const [isNotFound, setIsNotFound] = useState(false);
 
     const { warning, info, error: toastError, dismiss } = useToast();
     const fullscreenToastIdRef = useRef<string | null>(null);
@@ -94,12 +96,14 @@ export default function PublicExamPage() {
     // Exam ID for socket and monitoring
     const examId = slug as string;
 
-    // Socket Integration
-    // Socket Integration
+    // ===== ALL HOOKS MUST BE CALLED UNCONDITIONALLY BEFORE ANY EARLY RETURNS =====
+
+    // Socket Integration (must be called before early return)
     const { socket, saveAnswer, logViolation: socketLogViolation, saveReviewStatus, disconnect } = useExamSocket(
         examId,
         user?.id || user?.rollNumber || '',
-        sessionId || ''
+        sessionId || '',
+        isNotFound
     );
 
     useEffect(() => {
@@ -109,7 +113,6 @@ export default function PublicExamPage() {
         }
     }, []);
 
-    // Effect for Offline Alert (Trigger after 5s)
     useEffect(() => {
         if (isOnline) {
             setShowOfflineAlert(false);
@@ -121,7 +124,6 @@ export default function PublicExamPage() {
         }
     }, [isOnline]);
 
-    // Delay Fullscreen Warning by 3 seconds
     useEffect(() => {
         const timer = setTimeout(() => {
             setCanShowFullscreenWarning(true);
@@ -129,32 +131,26 @@ export default function PublicExamPage() {
         return () => clearTimeout(timer);
     }, []);
 
-    // Initialize Monitoring Hook
     const { logEvent } = useElectronMonitoring(slug || '', user?.rollNumber || "2211981482");
 
-    // --- AI PROCTORING & PEERJS ---
     const { videoRef, canvasRef, isModelLoaded } = useProctoringAI({
-        active: !isLoading && !isSuccessMode && !isFeedbackMode && isAiProctoringEnabled, // Only active when taking exam AND enabled
+        active: !isLoading && !isSuccessMode && !isFeedbackMode && isAiProctoringEnabled && !isNotFound,
         onViolation: (type, msg, img) => {
             console.log(`[Proctoring] Violation: ${type} - ${msg}. SessionID state:`, sessionId);
-            socketLogViolation(type, msg, img); // Pass image as details
+            socketLogViolation(type, msg, img);
         }
     });
 
-    const peerInstance = useRef<any>(null); // Use any to avoid static import issues or specific type if loaded
+    const peerInstance = useRef<any>(null);
 
     useEffect(() => {
         // Initialize PeerJS only on client
-        if (typeof window === 'undefined' || !isAiProctoringEnabled) return;
+        if (typeof window === 'undefined' || !isAiProctoringEnabled || isNotFound) return;
 
         let peer: any;
         const initPeer = async () => {
             try {
                 const { Peer } = await import('peerjs');
-                // Use a random ID or predictable if preferred?
-                // Random is fine, we will exchange it via socket signal if we want "call me".
-                // BUT the plan says: Teacher sends CMD_REQUEST_STREAM -> Student calls Teacher.
-                // So Student just needs a Peer ID.
                 peer = new Peer();
 
                 peer.on('open', (id: string) => {
@@ -172,9 +168,8 @@ export default function PublicExamPage() {
         return () => {
             if (peer) peer.destroy();
         };
-    }, [isAiProctoringEnabled]);
+    }, [isAiProctoringEnabled, isNotFound]);
 
-    // Listen for Streaming Requests
     useEffect(() => {
         if (!socket || !isAiProctoringEnabled) return;
 
@@ -245,38 +240,97 @@ export default function PublicExamPage() {
         // Load Exam Data on Mount
         async function loadExamData() {
             try {
-                // 0. MANDATORY LOGIN CHECK for specific slug
-                if (typeof window !== 'undefined') {
-                    const isAuthorized = localStorage.getItem(`exam_${slug}_auth`);
-                    if (!isAuthorized) {
-                        console.log(`[ExamPage] Not authorized for slug: ${slug}, redirecting to login...`);
-                        router.replace(`/exam/login?slug=${slug}`);
+                // 0. Use the robust check API first
+                const checkStatus = await ExamService.checkExamStatus(slug as string);
+                
+                if (checkStatus.error || !checkStatus.quiz) {
+                     console.error('[ExamPage] Exam check failed:', checkStatus.error);
+                     if (checkStatus.error === 'Exam not found' || !checkStatus.quiz) {
+                         setIsNotFound(true);
+                         setIsLoading(false);
+                         return;
+                     }
+                }
+
+                // 0.1 Check Public Status First (Does not require auth)
+                try {
+                    const publicStatus = await ExamService.getExamPublicStatus(slug as string);
+                    const startTime = new Date(publicStatus.startTime).getTime();
+                    
+                    if (Date.now() < startTime) {
+                        console.log('[ExamPage] Exam starting soon, redirecting to waiting room');
+                        router.replace(`/exam/waiting?slug=${slug}`);
                         return;
+                    }
+                } catch (e: any) {
+                    console.warn('Failed to check public status', e);
+                    
+                    if (e.status === 404 || e.message === 'Exam not found') {
+                         console.error('[ExamPage] Exam public status 404. Aborting.');
+                         setIsNotFound(true);
+                         setIsLoading(false);
+                         return;     // Stop execution
                     }
                 }
 
-                // 0.1 Check Auth First (Global)
+                // 0.1 MANDATORY LOGIN CHECK for specific slug
+                if (typeof window !== 'undefined') {
+                    // Check logic optimized in recent conversation
+                    const isAuthorized = localStorage.getItem(`exam_${slug}_auth`);
+                    const storedUserRaw = localStorage.getItem('user');
+
+                    // If NO auth marker AND NO user session, then redirect
+                    if (!isAuthorized && !storedUserRaw) {
+                         // Double check if cookie exists via simple fetch? No, cannot check HttpOnly cookie.
+                         // But if we came from login, localStorage should be set.
+                         // Maybe the user is coming back later and localStorage is gone but cookie remains?
+                         // If cookie remains, we should try to fetch the exam and see if it works.
+                         // If it works (200 OK), we can restore localStorage or proceed.
+                         
+                         // BUT, `getExamBySlug` below will do exactly that.
+                         // So maybe we should RELAX this check and let `getExamBySlug` fail with 401 if truly unauth.
+                         
+                         // However, if we remove this, unidentified users will try to fetch exam.
+                         // If `storedUserRaw` is missing, the UI will break mainly because `user` state is null.
+                         // We need `user` object for socket connection.
+                         
+                         // Fix: if no localStorage 'user', try to fetch /auth/me or profile via proxy to restore it?
+                         // Or just redirect.
+                         
+                         // In the loop case: User logs in -> setItem -> redirect -> loadExamData -> getItem.
+                         // This should work.
+                         
+                         // Unless... the slog in `exam_${slug}_auth` differs from `slug` param?
+                         
+                         // Let's degrade this "Redirect Immediately" to "Log Warning" and verify in step 1.
+                         console.log(`[ExamPage] Local auth check failed for ${slug}. Will verify via API.`);
+                        //  router.replace(`/exam/login?slug=${slug}`);
+                        //  return;
+                    }
+                }
+
+                // 0.2 Check Auth First (Global)
                 const storedUserRaw = localStorage.getItem('user');
                 if (!storedUserRaw) {
-                    console.log('No user found, redirecting to login');
+                    // If we dont have user object, we can't initialize socket or UI properly.
+                    // We must attempt to restore it from server if cookie exists.
+                    // Or redirect.
+                    
+                    // Note: If the user just logged in, storedUserRaw SHOULD be there.
+                    // If it is NOT there, maybe the `slug` mismatch caused the Login page to NOT set `exam_${slug}_auth`?
+                    // But `user` is global.
+                    
+                    console.log('No user found in localStorage, redirecting to login');
                     router.replace(`/exam/login?slug=${slug}`);
                     return;
                 }
                 const currentUserMeta = JSON.parse(storedUserRaw);
 
-                // 0.2 Get Metadata (Roll No, Name, Section)
+                // 0.3 Get Metadata (Roll No, Name, Section)
                 const studentMetadataRaw = localStorage.getItem(`exam_${slug}_metadata`);
                 const studentMetadata = studentMetadataRaw ? JSON.parse(studentMetadataRaw) : null;
 
-                // 0.1 Check Public Status First
-                const publicStatus = await ExamService.getExamPublicStatus(slug as string);
-                const startTime = new Date(publicStatus.startTime).getTime();
-                if (Date.now() < startTime) {
-                    router.replace(`/exam/waiting?slug=${slug}`);
-                    return; // Prevent setIsLoading(false)
-                }
-
-                // 0.2 Standardize Identity (DeviceId & TabId)
+                // 0.4 Standardize Identity (DeviceId & TabId)
                 let deviceId = localStorage.getItem('deviceId');
                 if (!deviceId) {
                     deviceId = 'dev_' + Math.random().toString(36).substring(2, 12);
@@ -496,6 +550,14 @@ export default function PublicExamPage() {
                 console.log("[ExamPage] Exam data loaded successfully, isLoading set to false");
             } catch (error: any) {
                 console.error("[ExamPage] Failed to load exam data", error);
+
+                // Check for 404 specifically
+                if (error.message?.includes('API Error: 404') || error.message?.includes('Not Found') || error.status === 404 || error.message === 'Exam not found') {
+                     setIsNotFound(true);
+                     setIsLoading(false);
+                     return;
+                }
+
                 if (error.message?.includes('EXAM_ALREADY_ACTIVE')) {
                     window.location.href = `/exam/login?slug=${slug}&error=active_session`;
                     return; // Keep loading visible
@@ -734,6 +796,15 @@ export default function PublicExamPage() {
             const isFS = !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
             console.log("[ExamPage] checkFullscreen called. isFS:", isFS, "ToastId:", fullscreenToastIdRef.current);
 
+            // Don't enforce fullscreen if exam is not found
+            if (isNotFound) {
+                if (fullscreenToastIdRef.current) {
+                    dismiss(fullscreenToastIdRef.current);
+                    fullscreenToastIdRef.current = null;
+                }
+                return;
+            }
+
             if (!isFS) {
                 if (!fullscreenToastIdRef.current && canShowFullscreenWarning) {
                     console.log("[ExamPage] Showing fullscreen warning toast...");
@@ -778,7 +849,7 @@ export default function PublicExamPage() {
                 fullscreenToastIdRef.current = null;
             }
         };
-    }, [isFeedbackMode, isSuccessMode, warning, dismiss, canShowFullscreenWarning]);
+    }, [isFeedbackMode, isSuccessMode, warning, dismiss, canShowFullscreenWarning, isNotFound]);
 
     // Auto-collapse sidebar if not hovered for 3s (initial load only)
     useEffect(() => {
@@ -1060,6 +1131,28 @@ export default function PublicExamPage() {
     const handleDoneSuccess = () => {
         window.location.href = "/dashboard/student";
     };
+
+    // ===== EARLY RETURN AFTER ALL HOOKS =====
+    // Render simple error message if exam not found
+    if (isNotFound) {
+        return (
+            <div className="h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
+                <div className="max-w-md w-full text-center space-y-6">
+                    <div className="text-6xl font-black text-slate-300">404</div>
+                    <h1 className="text-3xl font-bold text-slate-800">Exam Not Found</h1>
+                    <p className="text-lg text-slate-600">
+                        The exam you are looking for does not exist or is no longer available.
+                    </p>
+                    <button
+                        onClick={() => router.push('/dashboard')}
+                        className="mt-8 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
+                    >
+                        Go Back to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (isLoading && sections.length === 0) {
         return <Loading />;

@@ -101,7 +101,7 @@ export default function SuperAdminProfilePage() {
 
     return (
         <div className="min-h-screen bg-slate-50/50 font-inter">
-            <Navbar />
+            <Navbar userRole="super-admin" />
 
             <main className="max-w-5xl mx-auto px-6 py-12">
                 <div className="bg-white rounded-3xl border border-slate-100 p-8 mb-8 shadow-sm flex flex-col md:flex-row items-center gap-8 animate-in fade-in slide-in-from-top-4 duration-500">

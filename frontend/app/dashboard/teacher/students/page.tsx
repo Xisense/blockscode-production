@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { TeacherService } from "@/services/api/TeacherService";
 import Loading from "@/app/loading";
 import { useToast } from "@/app/components/Common/Toast";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Users, GraduationCap, X, Search, Filter, Mail, Calendar, CheckCircle2, Trash2 } from "lucide-react";
 
 export default function TeacherStudentsPage() {
@@ -12,6 +13,7 @@ export default function TeacherStudentsPage() {
     const [students, setStudents] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const debouncedSearchQuery = useDebounce(searchQuery, 300);
     const [selectedStudent, setSelectedStudent] = useState<any>(null);
     const router = useRouter();
 
@@ -31,8 +33,8 @@ export default function TeacherStudentsPage() {
     }, []);
 
     const filteredStudents = students.filter(st =>
-        st.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        st.course.toLowerCase().includes(searchQuery.toLowerCase())
+        st.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        st.course.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
     );
 
     const handleUnenroll = async (courseId: string, studentId: string) => {
@@ -69,7 +71,7 @@ export default function TeacherStudentsPage() {
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans selection:bg-[var(--brand-light)] selection:text-[var(--brand-dark)]">
-            <Navbar />
+            <Navbar userRole="teacher" />
 
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in relative">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">

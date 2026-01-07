@@ -1,15 +1,21 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Processor('submission_queue', {
     // Optimize for serverless Redis (reduce command usage)
     stalledInterval: 300000, // 5 minutes
     maxStalledCount: 3,
     lockDuration: 60000, // 60s
+    concurrency: 5 // Process 5 answers in parallel
 })
 export class SubmissionProcessor extends WorkerHost {
-    constructor(private prisma: PrismaService) {
+    constructor(
+        private prisma: PrismaService,
+        @InjectRedis() private readonly redis: Redis
+    ) {
         super();
     }
 
@@ -27,21 +33,57 @@ export class SubmissionProcessor extends WorkerHost {
         // console.log(`[SubmissionProcessor] Saving answer for session ${sessionId}:`, JSON.stringify(answer));
 
         try {
-            // 1. Fetch Session and Exam for Grading
-            // OPTIMIZATION: Only fetch the questions field from exam, not the entire object
-            const session = await this.prisma.examSession.findUnique({
-                where: { id: sessionId },
-                select: {
-                    id: true,
-                    exam: {
-                        select: { questions: true }
+            // PERFORMANCE: Check Redis for cached grading data (Exam Questions)
+            // We need examId first. We can cache "session:meta:{sessionId}" -> { examId, examQuestions }
+            
+            const sessionCacheKey = `session:meta:${sessionId}`;
+            const cachedSession = await this.redis.get(sessionCacheKey);
+            
+            let examQuestions = null;
+            let sessionStatus = null;
+
+            if (cachedSession) {
+                const meta = JSON.parse(cachedSession);
+                examQuestions = meta.questions;
+                sessionStatus = meta.status;
+            } else {
+                // Fetch from DB
+                const session = await this.prisma.examSession.findUnique({
+                    where: { id: sessionId },
+                    select: {
+                        id: true,
+                        status: true,
+                        exam: {
+                            select: { questions: true }
+                        }
+                    }
+                });
+                
+                if (session) {
+                    examQuestions = session.exam?.questions;
+                    sessionStatus = session.status;
+
+                    if (examQuestions) {
+                        // Cache for the duration of the exam session (e.g., 3 hours)
+                        await this.redis.set(sessionCacheKey, JSON.stringify({
+                            examId: session.id, // Not really needed but structure
+                            questions: examQuestions,
+                            status: session.status
+                        }), 'EX', 10800);
                     }
                 }
-            });
+            }
+
+            // CHECK STATUS: If terminated or completed, ignore answers
+            if (sessionStatus === 'TERMINATED' || sessionStatus === 'COMPLETED') {
+                // console.log(`[SubmissionProcessor] Ignored answer for ${sessionStatus} session ${sessionId}`);
+                return;
+            }
 
             let internalMarks: Record<string, number> = {};
-            if (session && session.exam) {
-                const examQuestions = session.exam.questions as any;
+            if (examQuestions) {
+                // Reuse variable name to minimize code change in logic below
+                // const examQuestions = session.exam.questions as any; <-- Removed
                 
                 // Helper to find question
                 const findQuestion = (questionsData: any, questionId: string) => {

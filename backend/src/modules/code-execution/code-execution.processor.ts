@@ -5,14 +5,14 @@ import type { IExecutionStrategy } from './strategies/execution-strategy.interfa
 
 @Processor('code-execution', {
     limiter: {
-        max: 5, // Increased limit (assuming minimal risk or local hosting)
+        max: 3, // Reduced to 3/sec to stay safely under the strict 5/sec API limit
         duration: 1000
     },
-    concurrency: 5, // Allow 5 parallel requests to maximize throughput up to the rate limit
+    concurrency: 1, // Force sequential processing to prevent burst rate-limiting
     // Optimize for serverless Redis (reduce command usage)
-    stalledInterval: 300000, // 5 minutes
+    stalledInterval: 300000, 
     maxStalledCount: 3,
-    lockDuration: 60000, // 60s
+    lockDuration: 60000, 
 })
 export class CodeExecutionProcessor extends WorkerHost {
     private readonly logger = new Logger(CodeExecutionProcessor.name);

@@ -1,7 +1,3 @@
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { java } from "@codemirror/lang-java";
-import { cpp } from "@codemirror/lang-cpp";
 import { LanguageConfig } from "./types";
 
 export const JavascriptConfig: LanguageConfig = {
@@ -17,7 +13,10 @@ const solution = (nums) => {`,
     footer: `};
 
 console.log(solution([1, 2, 3]));`,
-    extension: async () => javascript(),
+    extension: async () => {
+        const { javascript } = await import("@codemirror/lang-javascript");
+        return javascript();
+    },
 };
 
 export const PythonConfig: LanguageConfig = {
@@ -32,7 +31,10 @@ def solver(data):
     footer: `
 if __name__ == "__main__":
     print(solver([1, 2, 3]))`,
-    extension: async () => python(),
+    extension: async () => {
+        const { python } = await import("@codemirror/lang-python");
+        return python();
+    },
 };
 
 export const CppConfig: LanguageConfig = {
@@ -55,7 +57,10 @@ int main() {
     cout << solve(nums) << endl;
     return 0;
 }`,
-    extension: async () => cpp(),
+    extension: async () => {
+        const { cpp } = await import("@codemirror/lang-cpp");
+        return cpp();
+    },
 };
 
 export const JAVA_BOILERPLATE: LanguageConfig = {
@@ -77,7 +82,10 @@ class Solution {`,
         return sum;
     }`,
     footer: `}`,
-    extension: async () => java(),
+    extension: async () => {
+        const { java } = await import("@codemirror/lang-java");
+        return java();
+    },
 };
 
 export const SUPPORTED_LANGUAGES = [CppConfig, JavascriptConfig, PythonConfig, JAVA_BOILERPLATE];

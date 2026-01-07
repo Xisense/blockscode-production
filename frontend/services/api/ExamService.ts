@@ -1,7 +1,15 @@
 import { UnitQuestion } from '@/app/components/UnitRenderer';
 import { AuthService } from './AuthService';
+import { LRUCache } from 'lru-cache';
 
 const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
+
+// Cache exam definitions (static content) to prevent re-fetching on navigation
+// Cache: Max 10 exams, TTL 10 minutes
+const examCache = new LRUCache<string, any>({
+    max: 10,
+    ttl: 1000 * 60 * 10, 
+});
 
 const getHeaders = () => {
     // Auth token is handled by cookie in Proxy
@@ -12,15 +20,27 @@ const getHeaders = () => {
 
 export const ExamService = {
     async getExamBySlug(slug: string): Promise<any> {
+        // Return cached response if available
+        if (examCache.has(slug)) {
+            console.log(`[ExamService] Cache Hit for ${slug}`);
+            return examCache.get(slug);
+        }
+
         try {
             const res = await fetch(`${BASE_URL}/exam/${slug}?json=1`, {
                 headers: getHeaders()
             });
             if (!res.ok) {
+                if (res.status === 404) throw new Error('API Error: 404'); // Explicitly match catch block
                 if (res.status === 401) throw new Error('401 Unauthorized');
                 throw new Error(`API Error: ${res.status}`);
             }
-            return await res.json();
+            const data = await res.json();
+            
+            // Store in cache
+            examCache.set(slug, data);
+            
+            return data;
         } catch (error) {
             console.error(`[ExamService] API GetExam failed for ${slug}`, error);
             throw error;
@@ -30,11 +50,35 @@ export const ExamService = {
     async getExamPublicStatus(slug: string): Promise<any> {
         try {
             const res = await fetch(`${BASE_URL}/exam/${slug}/public-status`);
+            
+            // Explicitly handle 404 from Proxy/Backend
+            if (res.status === 404) {
+                 const err = new Error('Exam not found');
+                 (err as any).status = 404;
+                 throw err;
+            }
+
             if (!res.ok) throw new Error('Failed to fetch status');
             return await res.json();
-        } catch (error) {
+        } catch (error: any) {
             console.error('[ExamService] Failed to fetch public status', error);
+            // Re-throw if it's already our custom 404
+            if (error.status === 404 || error.message === 'Exam not found') {
+                throw error;
+            }
+            // Otherwise, wrap or just rethrow
             throw error;
+        }
+    },
+
+    async checkExamStatus(slug: string): Promise<any> {
+         try {
+            const res = await fetch(`${BASE_URL}/exam/${slug}/check?json=1`);
+            return await res.json();
+        } catch (error) {
+            console.error('[ExamService] checkExamStatus failed', error);
+            // Fallback for network error
+            return { quiz: null, error: 'Network Error' };
         }
     },
 

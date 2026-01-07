@@ -1,15 +1,21 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 
 import { MonitoringGateway } from '../monitoring/monitoring.gateway';
 import { ExamService } from '../exam/exam.service';
+import { CourseService } from '../course/course.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class TeacherService {
     constructor(
         private prisma: PrismaService,
         private monitoringGateway: MonitoringGateway,
-        private examService: ExamService
+        private examService: ExamService,
+        private courseService: CourseService,
+        @InjectRedis() private readonly redis: Redis
     ) { }
 
     private checkAccess(resource: any, user: any) {
@@ -22,8 +28,25 @@ export class TeacherService {
 
     async getStats(user: any) {
         const userId = user.id;
+
+        // CACHE
+        const cacheKey = `teacher:stats:${userId}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
+
         const totalExams = await this.prisma.exam.count({ where: { creatorId: userId, isActive: true } });
-        const totalStudents = await this.prisma.user.count({ where: { role: 'STUDENT' } }); // TODO: Scope to Org?
+        
+        // Scope students count based on role
+        const studentWhere: any = { role: 'STUDENT' };
+        if (user.role === 'ADMIN') {
+            studentWhere.orgId = user.orgId;
+        } else {
+            // For teachers, count students enrolled in their courses
+            studentWhere.courses = { some: { creatorId: user.id } };
+        }
+
+        const totalStudents = await this.prisma.user.count({ where: studentWhere });
+        
         const recentSubmissionsCount = await this.prisma.examSession.count({
             where: {
                 exam: { creatorId: userId },
@@ -32,11 +55,16 @@ export class TeacherService {
             }
         });
 
-        return {
+        const stats = {
             totalExams,
             totalStudents,
             recentSubmissions: recentSubmissionsCount
         };
+
+        // Cache for 60s
+        await this.redis.set(cacheKey, JSON.stringify(stats), 'EX', 60);
+
+        return stats;
     }
 
     async getExam(idOrSlug: string, user: any) {
@@ -81,6 +109,11 @@ export class TeacherService {
     }
 
     async getRecentSubmissions(user: any) {
+        // CACHE
+        const cacheKey = `teacher:recent_submissions:${user.id}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
+
         const whereClause: any = {
             status: 'COMPLETED'
         };
@@ -98,16 +131,25 @@ export class TeacherService {
             include: {
                 user: true,
                 exam: true
-            }
+            } // Removed generic mapping here to keep it simple, controller handles or returns raw
         });
 
-        return submissions.map((s: any) => ({
-            id: s.id,
-            name: s.user ? (s.user.name || s.user.email) : 'Unknown User',
-            module: s.exam ? s.exam.title : 'Unknown Exam',
-            time: s.endTime,
-            status: 'Reviewed'
+        // Mapping to simpler view if needed, but let's assume UI handles it.
+        // Actually the original code might have continued... let's check reading.
+
+        // Map to frontend expected format
+        const mappedSubmissions = submissions.map((sub: any) => ({
+            id: sub.id,
+            name: sub.user?.name || 'Unknown Student',
+            module: sub.exam?.title || 'Unknown Exam',
+            time: sub.updatedAt,
+            status: sub.status === 'COMPLETED' ? 'Submitted' : 'Pending'
         }));
+
+        // Cache for 30s
+        await this.redis.set(cacheKey, JSON.stringify(mappedSubmissions), 'EX', 30);
+
+        return mappedSubmissions;
     }
 
     async getMyModules(user: any) {
@@ -139,9 +181,9 @@ export class TeacherService {
     }
 
     async getStudents(user: any) {
-        const whereClause: any = { role: 'STUDENT' };
-        const courseFilter: any = {};
-        const submissionFilter: any = {};
+        const whereClause: Prisma.UserWhereInput = { role: 'STUDENT' };
+        const courseFilter: Prisma.CourseWhereInput = {};
+        const submissionFilter: Prisma.UnitSubmissionWhereInput = {};
 
         if (user.role === 'ADMIN') {
             whereClause.orgId = user.orgId;
@@ -156,7 +198,7 @@ export class TeacherService {
         const students = await this.prisma.user.findMany({
             where: whereClause,
             select: {
-                id: true, name: true, email: true, rollNumber: true, createdAt: true,
+                id: true, name: true, email: true, rollNumber: true, createdAt: true, updatedAt: true,
                 courses: {
                     where: courseFilter,
                     select: {
@@ -667,37 +709,13 @@ export class TeacherService {
             if (!course) return { success: true, message: 'Course already deleted' };
             this.checkAccess(course, user);
 
-            // 0. Disconnect students
-            await this.prisma.course.update({
-                where: { id },
-                data: { students: { set: [] } }
-            }).catch(() => { });
-
-            // 1. Delete CourseTests
-            await this.prisma.courseTest.deleteMany({ where: { courseId: id } });
-
-            // 2. Delete Modules and Units
-            const modules = await this.prisma.courseModule.findMany({ where: { courseId: id } });
-            for (const mod of modules) {
-                const units = await this.prisma.unit.findMany({ where: { moduleId: mod.id } });
-                for (const unit of units) {
-                    await this.prisma.unitSubmission.deleteMany({ where: { unitId: unit.id } });
-                    await this.prisma.bookmark.deleteMany({ where: { unitId: unit.id } });
-                    await this.prisma.unit.delete({ where: { id: unit.id } }).catch(() => { });
-                }
-                await this.prisma.courseModule.delete({ where: { id: mod.id } }).catch(() => { });
-            }
-
-            // 3. Delete Course
+            // Optimized: Use Cascade Delete defined in Prisma Schema
+            // This replaces the previous N+1 manual deletion loop
             const deleted = await this.prisma.course.delete({ where: { id } });
             return { success: true, deleted };
         } catch (e) {
             console.error(`[TeacherService] Delete failed for course ${id}:`, e);
-            try {
-                return await this.prisma.course.delete({ where: { id } });
-            } catch (inner) {
-                throw new Error(`Failed to delete course: ${inner.message}`);
-            }
+            throw new Error(`Failed to delete course: ${e.message}`);
         }
     }
 
@@ -721,6 +739,12 @@ export class TeacherService {
             }
         });
 
+        // Invalidate course cache
+        await this.courseService.invalidateCourseCache(course.slug);
+        if (existing.slug !== course.slug) {
+             await this.courseService.invalidateCourseCache(existing.slug);
+        }
+
         // 1. Sync Modules and Units
         if (data.sections && Array.isArray(data.sections)) {
             const existingModules = await this.prisma.courseModule.findMany({
@@ -739,22 +763,35 @@ export class TeacherService {
                 const sec = data.sections[i];
                 const isNewModule = !this.isUUID(sec.id);
 
-                const module = isNewModule
-                    ? await this.prisma.courseModule.create({ data: { title: sec.title, order: i, courseId: id } })
-                    : await this.prisma.courseModule.update({ where: { id: sec.id }, data: { title: sec.title, order: i } });
+                let module;
+                if (!isNewModule) {
+                     module = await this.prisma.courseModule.upsert({
+                        where: { id: sec.id },
+                        update: { title: sec.title, order: i },
+                        create: { id: sec.id, title: sec.title, order: i, courseId: id }
+                    });
+                } else {
+                     module = await this.prisma.courseModule.create({ 
+                        data: { title: sec.title, order: i, courseId: id } 
+                    });
+                }
 
                 if (sec.questions && Array.isArray(sec.questions)) {
-                    const existingUnits = existingModules.find((m: any) => m.id === module.id)?.units || [];
+                    // Refresh existing units list for deletion check since we might have upserted the module
+                    const unitsInDb = await this.prisma.unit.findMany({ where: { moduleId: module.id }, select: { id: true } });
+                    const unitsInDbIds = unitsInDb.map(u => u.id);
+                    
                     const currentUnitIds = sec.questions.map((q: any) => q.id).filter((id: string) => this.isUUID(id));
-                    const unitsToDelete = existingUnits.filter((u: any) => !currentUnitIds.includes(u.id));
+                    const unitsToDelete = unitsInDbIds.filter((uid: string) => !currentUnitIds.includes(uid));
 
-                    for (const unit of unitsToDelete) {
-                        await this.prisma.unit.delete({ where: { id: unit.id } });
+                    for (const uid of unitsToDelete) {
+                        await this.prisma.unit.delete({ where: { id: uid } });
                     }
 
                     for (let j = 0; j < sec.questions.length; j++) {
                         const q = sec.questions[j];
-                        const isNewUnit = !this.isUUID(q.id);
+                        const hasUUID = this.isUUID(q.id);
+                        
                         const unitData = {
                             title: q.title,
                             type: q.type,
@@ -763,10 +800,14 @@ export class TeacherService {
                             moduleId: module.id
                         };
 
-                        if (isNewUnit) {
-                            await this.prisma.unit.create({ data: unitData });
+                        if (hasUUID) {
+                            await this.prisma.unit.upsert({
+                                where: { id: q.id },
+                                update: unitData,
+                                create: { ...unitData, id: q.id }
+                            });
                         } else {
-                            await this.prisma.unit.update({ where: { id: q.id }, data: unitData });
+                            await this.prisma.unit.create({ data: unitData });
                         }
                     }
                 }
@@ -787,7 +828,7 @@ export class TeacherService {
             }
 
             for (const test of data.tests) {
-                const isNewTest = !this.isUUID(test.id);
+                const hasUUID = this.isUUID(test.id);
                 const testData = {
                     title: test.title,
                     slug: test.slug || `${test.title.toLowerCase().replace(/ /g, '-')}-${Date.now()}`,
@@ -797,10 +838,14 @@ export class TeacherService {
                     courseId: id
                 };
 
-                if (isNewTest) {
-                    await this.prisma.courseTest.create({ data: testData });
+                if (hasUUID) {
+                    await this.prisma.courseTest.upsert({
+                        where: { id: test.id },
+                        update: testData,
+                        create: { ...testData, id: test.id }
+                    });
                 } else {
-                    await this.prisma.courseTest.update({ where: { id: test.id }, data: testData });
+                    await this.prisma.courseTest.create({ data: testData });
                 }
             }
         }
@@ -1076,11 +1121,22 @@ export class TeacherService {
         if (!exam) throw new Error('Exam not found');
         this.checkAccess(exam, user);
 
+        // Find sessions to invalidate cache
+        const sessions = await this.prisma.examSession.findMany({
+            where: { examId, userId: studentId }
+        });
+
         // Update session status
         await this.prisma.examSession.updateMany({
             where: { examId, userId: studentId },
             data: { status: 'TERMINATED', endTime: new Date() }
         });
+
+        // Invalidate caches
+        for (const session of sessions) {
+            await this.redis.del(`session:status:${session.id}`);
+            await this.redis.del(`session:meta:${session.id}`); // Clear processor cache
+        }
 
         // Force kick via websocket
         await this.monitoringGateway.forceTerminate(examId, studentId);
@@ -1094,11 +1150,22 @@ export class TeacherService {
         if (!exam) throw new Error('Exam not found');
         this.checkAccess(exam, user);
 
+         // Find sessions to invalidate cache
+        const sessions = await this.prisma.examSession.findMany({
+            where: { examId, userId: studentId }
+        });
+
         // Update session status back to IN_PROGRESS
         await this.prisma.examSession.updateMany({
             where: { examId, userId: studentId },
             data: { status: 'IN_PROGRESS', endTime: null }
         });
+
+         // Invalidate caches to allow re-entry/re-processing
+        for (const session of sessions) {
+            await this.redis.del(`session:status:${session.id}`);
+            await this.redis.del(`session:meta:${session.id}`);
+        }
 
         return { success: true };
     }

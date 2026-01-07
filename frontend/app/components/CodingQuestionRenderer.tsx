@@ -1,7 +1,12 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import CodeEditor from './Editor/CodeEditor';
+import dynamic from 'next/dynamic';
 import { PLAYGROUND_LANGUAGES } from './Editor/playgroundLanguages';
+
+const CodeEditor = dynamic(() => import('./Editor/CodeEditor'), {
+  loading: () => <div className="h-[400px] bg-slate-50 animate-pulse rounded-2xl flex items-center justify-center text-slate-400 text-xs font-black uppercase tracking-widest">Loading Editor...</div>,
+  ssr: false
+});
 import { CodeExecutionService } from '@/services/api/CodeExecutionService';
 import { UnitQuestion } from '@/types/unit';
 

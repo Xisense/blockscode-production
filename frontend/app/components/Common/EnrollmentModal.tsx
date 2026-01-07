@@ -54,9 +54,11 @@ export default function EnrollmentModal({ isOpen, onClose, courseTitle, courseId
 
         try {
             const result = await TeacherService.enrollByEmails(courseId, [email]);
-            if (result.success) {
+            
+            // Check success based on summary (backend format)
+            if (result.summary && result.summary.enrolled > 0) {
                 setSuccess(true);
-                onEnroll([{ email }]);
+                onEnroll([{ email }]); // Optimistic update
                 toastSuccess(`Student enrolled successfully`);
                 setTimeout(() => {
                     setSuccess(false);
@@ -64,8 +66,10 @@ export default function EnrollmentModal({ isOpen, onClose, courseTitle, courseId
                     onClose();
                 }, 2000);
             } else {
-                setError(result.message || 'Enrollment failed');
-                toastError(result.message || 'Student not found');
+                // If enrolled is 0, check details for specific error
+                const errorMsg = result.details?.[0]?.error || result.message || 'Student not found or already enrolled';
+                setError(errorMsg);
+                toastError(errorMsg);
             }
         } catch (err) {
             setError('An error occurred during enrollment');
@@ -107,13 +111,14 @@ export default function EnrollmentModal({ isOpen, onClose, courseTitle, courseId
                 
                 if (result.summary) {
                     setImportReport(result);
-                    if (result.summary.success > 0) {
+                    // Use 'enrolled' property from backend summary
+                    if (result.summary.enrolled > 0) {
                         const successfulEmails = result.details
-                            .filter((d: any) => d.status === 'success')
+                            .filter((d: any) => d.success) // Check boolean success in details
                             .map((d: any) => ({ email: d.email }));
                         onEnroll(successfulEmails);
                     }
-                    toastSuccess(`Processed ${result.summary.total} students`);
+                    toastSuccess(`Processed ${result.summary.totalProcessed} students`);
                 } else if (result.success) {
                     setSuccess(true);
                     onEnroll(emails.map(e => ({ email: e })));

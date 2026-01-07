@@ -218,6 +218,8 @@ model CourseModule {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([courseId])
 }
 
 model Unit {
@@ -236,6 +238,8 @@ model Unit {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([moduleId])
 }
 
 model CourseTest {
@@ -252,6 +256,8 @@ model CourseTest {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([courseId])
 }
 
 model UnitSubmission {

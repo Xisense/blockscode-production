@@ -8,6 +8,7 @@ import { TeacherService } from "@/services/api/TeacherService";
 import { requireAuthClient } from "@/hooks/requireAuthClient";
 import Loading from "@/app/loading";
 import { AuthService } from "@/services/api/AuthService";
+import { useQuery } from "@/hooks/useQuery";
 
 export default function TeacherDashboardPage() {
     const [searchQuery, setSearchQuery] = useState("");
@@ -18,50 +19,42 @@ export default function TeacherDashboardPage() {
         courseId: ""
     });
     const [viewingCourse, setViewingCourse] = useState<any | null>(null);
-
-    const [modules, setModules] = useState<any[]>([]);
-    const [stats, setStats] = useState<any>(null);
-    const [recentParams, setRecentParams] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [authChecked, setAuthChecked] = useState(false);
     const [userData, setUserData] = useState<any>(null);
 
-    useEffect(() => {
-        if (!requireAuthClient("/login")) return;
-        setAuthChecked(true);
-        const user = AuthService.getUser();
-        setUserData(user);
-
-        async function loadData() {
-            try {
-                const [modulesData, statsData, recentData] = await Promise.all([
-                    TeacherService.getModules(),
-                    TeacherService.getStats(),
-                    TeacherService.getRecentSubmissions()
-                ]);
-                setModules(modulesData);
-                setStats(statsData);
-                setRecentParams(recentData);
-            } catch (e) {
-                console.error("Failed to load teacher dashboard", e);
-            } finally {
-                setLoading(false);
-            }
-        }
-        loadData();
+    // Auth
+    useEffect(() => { 
+        requireAuthClient("/login");
+        setUserData(AuthService.getUser());
     }, []);
 
-    const filteredModules = modules
-        .filter(m => m.status === tab)
-        .filter(m => m.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    const { data, isLoading: loading } = useQuery('teacher-dashboard', async () => {
+        const [modulesData, statsData, recentData] = await Promise.all([
+            TeacherService.getModules(),
+            TeacherService.getStats(),
+            TeacherService.getRecentSubmissions()
+        ]);
+        return { 
+            modules: modulesData, 
+            stats: statsData, 
+            recent: recentData 
+        };
+    });
 
-    if (!authChecked || loading) return <Loading />;
+    const modules: any[] = data?.modules || [];
+    const stats = data?.stats || null;
+    const recentParams = data?.recent || [];
+
+    const filteredModules = modules
+        .filter((m: any) => m.status === tab)
+        .filter((m: any) => m.title.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    if (loading && !stats) return <Loading />;
 
     const canCreateCourses = userData?.features?.canCreateCourses !== false;
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans selection:bg-[var(--brand-light)] selection:text-[var(--brand-dark)]">
-            <Navbar />
+            <Navbar userRole="teacher" />
 
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in">
 
@@ -205,13 +198,16 @@ function ActionBtn({ label, icon, onClick }: any) {
 }
 
 function SubmissionItem({ name, module, time, status }: any) {
+    const displayName = name || "Unknown User";
+    const initial = displayName.charAt(0);
+
     return (
         <div className="flex gap-4">
             <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-black text-slate-400 text-xs shrink-0">
-                {name[0]}
+                {initial}
             </div>
             <div>
-                <p className="text-sm font-black text-slate-800 leading-none mb-1">{name}</p>
+                <p className="text-sm font-black text-slate-800 leading-none mb-1">{displayName}</p>
                 <p className="text-[10px] font-bold text-slate-400 mb-2">{module}</p>
                 <div className="flex items-center gap-3">
                     <span className="text-[9px] font-black text-slate-300 uppercase">{time}</span>

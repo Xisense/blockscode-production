@@ -43,7 +43,7 @@ export default function TeacherExamsPage() {
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans selection:bg-[var(--brand-light)] selection:text-[var(--brand-dark)]">
-            <Navbar />
+            <Navbar userRole="teacher" />
 
             <main className="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 animate-fade-in">
                 <div className="flex items-center justify-between mb-12">

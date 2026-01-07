@@ -3,6 +3,8 @@ import type { IExecutionStrategy } from './strategies/execution-strategy.interfa
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, QueueEvents } from 'bullmq';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class CodeExecutionService {
@@ -13,6 +15,7 @@ export class CodeExecutionService {
         private readonly executionStrategy: IExecutionStrategy,
         private readonly prisma: PrismaService,
         @InjectQueue('code-execution') private executionQueue: Queue,
+        @InjectRedis() private readonly redis: Redis
     ) { }
 
     private getQueueEvents(): QueueEvents {
@@ -45,22 +48,40 @@ export class CodeExecutionService {
         let testCases: any[] = [];
 
         if (examId) {
-            // Handle Exam Question
-            const exam = await this.prisma.exam.findFirst({
-                where: {
-                    OR: [
-                        { id: examId },
-                        { slug: examId }
-                    ]
-                }
-            });
+            // PERFORMANCE: Cache exam questions to avoid fetching large JSON blobs on every run
+            const cacheKey = `exam:questions:${examId}`;
+            const cachedQuestions = await this.redis.get(cacheKey);
+            
+            let questionsData: any = null;
 
-            if (!exam) {
-                throw new NotFoundException('Exam not found');
+            if (cachedQuestions) {
+                questionsData = JSON.parse(cachedQuestions);
+            } else {
+                // Handle Exam Question
+                const exam = await this.prisma.exam.findFirst({
+                    where: {
+                        OR: [
+                            { id: examId },
+                            { slug: examId }
+                        ]
+                    },
+                    select: { id: true, questions: true, slug: true }
+                });
+
+                if (!exam) {
+                    throw new NotFoundException('Exam not found');
+                }
+                questionsData = exam.questions;
+                
+                // Cache for 10 minutes - exam content rarely changes during the exam
+                // We use both ID and Slug as key to ensure hits
+                await this.redis.set(`exam:questions:${exam.id}`, JSON.stringify(questionsData), 'EX', 600);
+                if (exam.slug) {
+                    await this.redis.set(`exam:questions:${exam.slug}`, JSON.stringify(questionsData), 'EX', 600);
+                }
             }
 
             // Find question in exam.questions
-            const questionsData: any = exam.questions;
             let foundQuestion: any = null;
 
             // Helper to find question in sections or flat list

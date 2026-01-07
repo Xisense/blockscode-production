@@ -8,7 +8,7 @@ export default function AdminExamResultsPage({ params }: { params: Promise<{ id:
     return (
         <div className="min-h-screen bg-[#F8FAFC]">
             {/* Admin Navbar or Sidebar would typically go here, but using generic Navbar for now or we might need an AdminNavbar */}
-            <Navbar />
+            <Navbar userRole="admin" />
             <ExamResultsView examId={id} userRole="admin" />
         </div>
     );

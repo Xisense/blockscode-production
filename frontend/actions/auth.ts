@@ -24,7 +24,8 @@ export async function loginAction(email: string, password: string) {
             // Expires in 7 days (matching typical JWT life or specific requirement)
             await (await cookies()).set('auth_token', data.access_token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
+                // Only use secure cookies if we are NOT on localhost, even in production build
+                secure: process.env.NODE_ENV === 'production' && !BASE_URL.includes('localhost'),
                 sameSite: 'lax',
                 path: '/',
                 maxAge: 7 * 24 * 60 * 60 

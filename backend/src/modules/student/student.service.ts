@@ -1,15 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { ExamService } from '../exam/exam.service';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class StudentService {
     constructor(
         private prisma: PrismaService,
-        private examService: ExamService
+        private examService: ExamService,
+        @InjectRedis() private readonly redis: Redis
     ) { }
 
     async getStats(userId: string) {
+        // PERFORMANCE: Check cache first
+        const cacheKey = `student:stats:${userId}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) {
+            return JSON.parse(cached);
+        }
+
         // Calculate completed exams
         const completedSessions = await this.prisma.examSession.count({
             where: { userId, status: 'COMPLETED' }
@@ -31,12 +41,17 @@ export class StudentService {
         // Calculate daily streak
         const streak = await this.calculateDailyStreak(userId);
 
-        return {
+        const stats = {
             completedModules: completedSessions,
             averageScore,
             streak,
             totalXP: completedSessions * 100 // Mock XP
         };
+
+        // Cache for 60 seconds (short lived)
+        await this.redis.set(cacheKey, JSON.stringify(stats), 'EX', 60);
+
+        return stats;
     }
 
     private async calculateDailyStreak(userId: string): Promise<number> {
@@ -308,6 +323,11 @@ export class StudentService {
     }
 
     async getAnalytics(userId: string) {
+        // PERFORMANCE: Cache analytics for 5 minutes
+        const cacheKey = `student:analytics:${userId}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
+
         // Get all unit submissions for analytics
         const submissions = await this.prisma.unitSubmission.findMany({
             where: { userId },
@@ -378,7 +398,7 @@ export class StudentService {
             fullMark: 150
         }));
 
-        return {
+        const result = {
             weeklyActivity,
             courseMastery,
             stats: {
@@ -391,6 +411,11 @@ export class StudentService {
                 streak
             }
         };
+
+        // Cache result for 5 minutes
+        await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
+        
+        return result;
     }
 
     async getProfile(userId: string) {

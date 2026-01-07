@@ -4,7 +4,7 @@ import { useToast } from '../app/components/Common/Toast';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
 
-export const useExamSocket = (examId: string, userId: string, sessionId: string) => {
+export const useExamSocket = (examId: string, userId: string, sessionId: string, isNotFound: boolean = false) => {
     const socketRef = useRef<Socket | null>(null);
     const [activeSocket, setActiveSocket] = useState<Socket | null>(null);
     const { error: toastError, warning } = useToast();
@@ -30,7 +30,11 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
     });
 
     useEffect(() => {
-        if (!examId || !userId || isKicked.current) return;
+        // Do NOT connect socket if exam is not found or if critical params are missing
+        if (!examId || !userId || isKicked.current || isNotFound) {
+            console.log('[Socket] Skipping connection:', { examId, userId, isNotFound });
+            return;
+        }
 
         // Initialize Socket
         const socket = io(`${SOCKET_URL}/proctoring`, {
@@ -89,6 +93,16 @@ export const useExamSocket = (examId: string, userId: string, sessionId: string)
                 toastError(msg || 'Connection Error');
             }
         });
+
+        // Listen for explicit force terminate event
+        socket.on('force_terminate', (data: any) => {
+             console.log('[Socket] Received force_terminate command');
+             isKicked.current = true;
+             socket.disconnect();
+             if (socketRef.current) socketRef.current.disconnect();
+             window.location.href = `/exam/login?slug=${examId}&error=terminated`;
+        });
+
 
         socket.on('disconnect', (reason) => {
             console.warn('Disconnected:', reason);

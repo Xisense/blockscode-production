@@ -8,7 +8,7 @@ async function bootstrap() {
     const app = await NestFactory.create<NestFastifyApplication>(
         AppModule,
         new FastifyAdapter({
-            logger: true,
+            logger: process.env.NODE_ENV !== 'production',
             bodyLimit: 50 * 1024 * 1024 // 50MB
         })
     );
@@ -36,7 +36,7 @@ async function bootstrap() {
     // Register compression for performance (gzip/brotli)
     await app.register(require('@fastify/compress'), { 
         global: true, 
-        encodings: ['gzip', 'deflate'] 
+        encodings: ['br', 'gzip', 'deflate'] 
     });
 
     // Set global API prefix
@@ -44,7 +44,28 @@ async function bootstrap() {
 
     // Enable CORS for Electron and Web clients
     app.enableCors({
-        origin: '*', // Configure this strictly in production
+        // Dynamic origin to support both localhost and production Vercel apps
+        origin: (origin, callback) => {
+            const allowedOrigins = [
+                'http://localhost:3000',
+                'https://blockscode-production.vercel.app',
+                'tauri://localhost',
+                'http://localhost:1420',
+                'https://www.blockscode.me',
+                'https://blockscode.me'
+            ];
+            
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            
+            if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+                callback(null, true);
+            } else {
+                // In development, might want to be more lenient or log
+                console.log('Blocked CORS:', origin);
+                callback(null, false);
+            }
+        },
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
         credentials: true,
     });

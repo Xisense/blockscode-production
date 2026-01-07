@@ -1,15 +1,17 @@
-import { MonitoringEvent, ViolationEvent } from '@/types/monitoring'; // We will create this type definition file next
+import { MonitoringEvent, ViolationEvent } from '@/types/monitoring';
 
-import { AuthService } from './AuthService';
+const BASE_URL = typeof window !== 'undefined' ? '/api/proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
-
-const getHeaders = () => {
-    const token = AuthService.getToken();
-    return {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
+// Helper for auth fetch
+const authFetch = (endpoint: string, options: RequestInit = {}) => {
+    return fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {}) as any
+        }
+    });
 };
 
 export const MonitoringService = {
@@ -20,9 +22,8 @@ export const MonitoringService = {
                 (window as any).api.sendToMain('log-event', event);
             }
 
-            const response = await fetch(`${BASE_URL}/exam/monitoring/log-event`, {
+            const response = await authFetch(`/exam/monitoring/log-event`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(event),
             });
 
@@ -38,9 +39,8 @@ export const MonitoringService = {
                 (window as any).api.sendToMain('log-violation', violation);
             }
 
-            const response = await fetch(`${BASE_URL}/exam/monitoring/log-violation`, {
+            const response = await authFetch(`/exam/monitoring/log-violation`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify(violation),
             });
 
@@ -52,9 +52,8 @@ export const MonitoringService = {
 
     async sendHeartbeat(): Promise<void> {
         try {
-            const response = await fetch(`${BASE_URL}/exam/monitoring/heartbeat`, {
+            const response = await authFetch(`/exam/monitoring/heartbeat`, {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify({ deviceId: 'browser' })
             });
             if (!response.ok) throw new Error('Heartbeat failed');

@@ -1,15 +1,30 @@
 "use client";
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import DOMPurify from 'isomorphic-dompurify';
 import SplitPane from './SplitPane';
 import ProblemStatement from './ProblemStatement';
 import MCQOptions from './MCQOptions';
 import AttemptsView, { Attempt } from './AttemptsView';
-import WebEditor from './WebEditor/WebEditor';
-import CodingQuestionRenderer from './CodingQuestionRenderer';
 
-import EmbeddedCodeRunner from './Reading/EmbeddedCodeRunner';
-import PythonNotebook from './Features/Notebook/PythonNotebook';
+// Dynamic imports for heavy editor components to optimize bundle size
+const WebEditor = dynamic(() => import('./WebEditor/WebEditor'), {
+    loading: () => <div className="h-full w-full bg-slate-50 animate-pulse flex items-center justify-center text-slate-400">Loading Web Editor...</div>,
+    ssr: false
+});
+const CodingQuestionRenderer = dynamic(() => import('./CodingQuestionRenderer'), {
+    loading: () => <div className="h-full w-full bg-slate-50 animate-pulse flex items-center justify-center text-slate-400">Loading Code Editor...</div>,
+    ssr: false
+});
+const EmbeddedCodeRunner = dynamic(() => import('./Reading/EmbeddedCodeRunner'), {
+    loading: () => <div className="h-64 w-full bg-slate-100 animate-pulse rounded-lg border border-slate-200"></div>,
+    ssr: false
+});
+const PythonNotebook = dynamic(() => import('./Features/Notebook/PythonNotebook'), {
+    loading: () => <div className="h-full w-full bg-slate-50 animate-pulse flex items-center justify-center text-slate-400">Loading Notebook...</div>,
+    ssr: false
+});
+
 import { SUPPORTED_LANGUAGES } from './Editor/languages';
 import { UnitQuestion, QuestionType } from '@/types/unit';
 

@@ -78,11 +78,20 @@ export class AuthService {
     }
 
     async login(user: any) {
+        // Enforce fresh check of mustChangePassword status
+        const freshUser = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            select: { mustChangePassword: true, organization: { select: { features: true } } }
+        });
+        
+        const mustChangePassword = freshUser?.mustChangePassword ?? user.mustChangePassword;
+        const features = freshUser?.organization?.features || user.organization?.features || {};
+
         const payload = {
             email: user.email,
             sub: user.id,
             role: user.role,
-            mustChangePassword: user.mustChangePassword
+            mustChangePassword: mustChangePassword
         };
         return {
             access_token: this.jwtService.sign(payload),
@@ -92,8 +101,9 @@ export class AuthService {
                 name: user.name,
                 role: user.role,
                 orgId: user.orgId,
-                features: user.organization?.features || {},
-                mustChangePassword: user.mustChangePassword,
+                profilePicture: user.profilePicture, // Include profile picture
+                features: features,
+                mustChangePassword: mustChangePassword,
                 otp_enabled: false
             }
         };
@@ -178,7 +188,7 @@ export class AuthService {
     }
 
     async updateProfile(userId: string, data: { name?: string; profilePicture?: string }) {
-        return this.prisma.user.update({
+        const updatedUser = await this.prisma.user.update({
             where: { id: userId },
             data: {
                 name: data.name,
@@ -193,6 +203,12 @@ export class AuthService {
                 profilePicture: true
             }
         });
+
+        // Invalidate session cache to ensure next request gets fresh data (with new profile pic/name)
+        const cacheKey = `user:session:${userId}`;
+        await this.redis.del(cacheKey);
+
+        return updatedUser;
     }
 
     async changePassword(userId: string, data: { currentPass: string; newPass: string }) {
@@ -210,6 +226,9 @@ export class AuthService {
                 mustChangePassword: false
             }
         });
+
+        // Invalidate session cache to ensure next request sees updated status
+        await this.redis.del(`user:session:${userId}`);
 
         return { success: true, message: 'Password updated successfully' };
     }

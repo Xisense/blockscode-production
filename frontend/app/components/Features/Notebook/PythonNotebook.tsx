@@ -1,7 +1,13 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import CodeEditor from "../../Editor/CodeEditor";
+import dynamic from "next/dynamic";
 import SplitPane from "../../SplitPane";
+
+// Dynamic Import for Code Splitting
+const CodeEditor = dynamic(() => import("../../Editor/CodeEditor"), {
+  loading: () => <div className="h-full w-full bg-slate-50 animate-pulse min-h-[100px]" />,
+  ssr: false
+});
 import { LanguageConfig } from "../../Editor/types";
 import { python } from "@codemirror/lang-python";
 import { TerminalSquare, Play, RotateCcw, Image as ImageIcon, AlertCircle } from "lucide-react";
