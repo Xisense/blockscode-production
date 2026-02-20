@@ -58,13 +58,24 @@ async function bootstrap() {
             // Allow requests with no origin (like mobile apps or curl requests)
             if (!origin) return callback(null, true);
             
-            if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-                callback(null, true);
-            } else {
-                // In development, might want to be more lenient or log
-                console.log('Blocked CORS:', origin);
-                callback(null, false);
+            // Check if origin is in the allowed list
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
             }
+            
+            // Support all subdomains of blockscode.me (bai.blockscode.me, sai.blockscode.me, custom.blockscode.me, etc.)
+            if (/^https?:\/\/[a-zA-Z0-9-]+\.blockscode\.me$/.test(origin)) {
+                return callback(null, true);
+            }
+            
+            // Support all Vercel preview deployments
+            if (origin.endsWith('.vercel.app')) {
+                return callback(null, true);
+            }
+            
+            // In development, might want to be more lenient or log
+            console.log('Blocked CORS:', origin);
+            callback(null, false);
         },
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
         credentials: true,
