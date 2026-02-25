@@ -17,7 +17,7 @@ export class PistonStrategy implements IExecutionStrategy {
         private readonly configService: ConfigService,
         @InjectRedis() private readonly redis: Redis,
     ) {
-        this.pistonUrl = this.configService.get<string>('PISTON_API_URL') || 'https://emkc.org/api/v2/piston';
+        this.pistonUrl = this.configService.get<string>('PISTON_API_URL') || 'https://auntly-oxygenic-otis.ngrok-free.dev/api/v2';
     }
 
     private generateCacheKey(language: string, code: string, stdin: string): string {
@@ -39,16 +39,26 @@ export class PistonStrategy implements IExecutionStrategy {
             }
 
             const response = await firstValueFrom(
-                this.httpService.post(`${this.pistonUrl}/execute`, {
-                    language,
-                    version: '*', // Use latest version available
-                    files: [
-                        {
-                            content: code,
+                this.httpService.post(
+                    `${this.pistonUrl}/execute`,
+                    {
+                        language,
+                        version: '*', // Use latest version available
+                        files: [
+                            {
+                                content: code,
+                            },
+                        ],
+                        stdin: stdin,
+                    },
+                    {
+                        // THIS IS THE CRITICAL ADDITION FOR NGROK
+                        headers: {
+                            'ngrok-skip-browser-warning': 'true',
+                            'Content-Type': 'application/json',
                         },
-                    ],
-                    stdin: stdin,
-                }),
+                    }
+                ),
             );
 
             const run = response.data.run;
