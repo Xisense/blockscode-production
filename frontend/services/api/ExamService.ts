@@ -58,12 +58,20 @@ export const ExamService = {
                  throw err;
             }
 
+            // IP restriction or other forbidden message
+            if (res.status === 403) {
+                const msg = await res.text().catch(() => 'Access denied');
+                const err = new Error(msg);
+                (err as any).status = 403;
+                throw err;
+            }
+
             if (!res.ok) throw new Error('Failed to fetch status');
             return await res.json();
         } catch (error: any) {
             console.error('[ExamService] Failed to fetch public status', error);
-            // Re-throw if it's already our custom 404
-            if (error.status === 404 || error.message === 'Exam not found') {
+            // Re-throw if it's already our custom 404/403
+            if (error.status === 404 || error.status === 403 || error.message === 'Exam not found') {
                 throw error;
             }
             // Otherwise, wrap or just rethrow
@@ -93,6 +101,11 @@ export const ExamService = {
                 const errorData = await res.json().catch(() => ({}));
                 if (res.status === 409 || (errorData.message && errorData.message.includes('ALREADY'))) {
                     throw new Error('EXAM_ALREADY_ACTIVE');
+                }
+                if (res.status === 403) {
+                    // propagate backend message so UI can display it
+                    const msg = errorData.message || 'Access denied by IP restriction';
+                    throw new Error(msg);
                 }
                 throw new Error('Failed to start exam');
             }

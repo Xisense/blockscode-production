@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import { Redis } from 'ioredis';
 import { PrismaService } from '../../services/prisma/prisma.service';
@@ -9,6 +9,33 @@ export class ExamService {
         private prisma: PrismaService,
         @InjectRedis() private readonly redis: Redis
     ) { }
+
+    /**
+     * Helper: normalize a free‑form allowedIPs string into an array of trimmed values.
+     * Supports comma, semi‑colon, whitespace or newline separated lists.
+     */
+    private parseAllowedIPs(raw: string | null | undefined): string[] {
+        if (!raw) {
+            return [];
+        }
+        return raw
+            .split(/[\s,;]+/)        // split on whitespace, commas or semicolons
+            .map(v => v.trim())
+            .filter(v => v.length > 0);
+    }
+
+    /**
+     * Return true if the provided client IP is present in the allowed list.
+     */
+    private isIpAllowed(clientIp: string, allowedRaw: string | null | undefined): boolean {
+        if (!allowedRaw || allowedRaw.trim().length === 0) {
+            // no restriction configured -> always allowed
+            return true;
+        }
+        const allowed = this.parseAllowedIPs(allowedRaw);
+        // simple exact match for now; future enhancement could support CIDR, wildcards, etc.
+        return allowed.includes(clientIp);
+    }
 
     async createExam(data: any) {
         try {
@@ -173,16 +200,23 @@ export class ExamService {
         throw new NotFoundException('Assessment not found');
     }
 
-    async getPublicStatus(slug: string) {
+    async getPublicStatus(slug: string, clientIp?: string) {
         console.log(`[ExamService] Checking public status for slug: ${slug}`);
         
         const exam = await this.prisma.exam.findUnique({
             where: { slug, isActive: true },
-            select: { title: true, startTime: true, duration: true, id: true, questions: true, totalMarks: true }
+            select: { title: true, startTime: true, duration: true, id: true, questions: true, totalMarks: true, allowedIPs: true }
         });
 
         if (exam) {
              console.log(`[ExamService] Found Exam: ${exam.title}`);
+
+            // enforce IP whitelist if configured
+            if (clientIp && !this.isIpAllowed(clientIp, (exam as any).allowedIPs)) {
+                console.warn(`[ExamService] IP ${clientIp} not permitted for exam ${slug}, whitelist: ${(exam as any).allowedIPs}`);
+                throw new ForbiddenException('Access from your IP address is not permitted for this exam');
+            }
+
             const rawQuestions: any = exam.questions || {};
             let totalQuestions = 0;
             let totalSections = 0;
@@ -471,6 +505,16 @@ export class ExamService {
 
     async startSession(userId: string, examId: string, ip: string, deviceId: string, tabId?: string, metadata?: any) {
         try {
+            // before touching sessions enforce IP whitelist
+            const exam = await this.prisma.exam.findUnique({
+                where: { id: examId },
+                select: { allowedIPs: true }
+            });
+            if (exam && !this.isIpAllowed(ip, exam.allowedIPs)) {
+                console.warn(`[ExamService] blocked startSession for examId=${examId}, clientIp=${ip}, whitelist=${exam.allowedIPs}`);
+                throw new ForbiddenException('Access from your IP address is not permitted for this exam');
+            }
+
             // Find existing session first to resume
             const existing = await this.prisma.examSession.findUnique({
                 where: { userId_examId: { userId, examId } },
@@ -540,16 +584,21 @@ export class ExamService {
         return { version: '1.0.0', features: ['monitoring', 'lockdown'] };
     }
 
-    async checkExamStatus(slug: string) {
+    async checkExamStatus(slug: string, clientIp?: string) {
         // 1. Try Exam
         const exam = await this.prisma.exam.findUnique({
             where: { slug },
-            select: { id: true, title: true, slug: true, isActive: true, duration: true, questions: true }
+            select: { id: true, title: true, slug: true, isActive: true, duration: true, questions: true, allowedIPs: true }
         });
 
         if (exam) {
             if (!exam.isActive) {
                 return { quiz: null, error: 'Exam is not active' };
+            }
+
+            // IP whitelist check
+            if (clientIp && !this.isIpAllowed(clientIp, (exam as any).allowedIPs)) {
+                return { quiz: null, error: 'IP not permitted' };
             }
 
             // Calculate total questions lightweight

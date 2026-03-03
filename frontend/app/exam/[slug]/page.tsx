@@ -250,6 +250,11 @@ export default function PublicExamPage() {
                          setIsLoading(false);
                          return;
                      }
+                     if (checkStatus.error === 'IP not permitted') {
+                         toastError('This exam cannot be started from your current network');
+                         setIsLoading(false);
+                         return;
+                     }
                 }
 
                 // 0.1 Check Public Status First (Does not require auth)
@@ -270,6 +275,11 @@ export default function PublicExamPage() {
                          setIsNotFound(true);
                          setIsLoading(false);
                          return;     // Stop execution
+                    }
+                    if (e.status === 403 || e.message?.toLowerCase().includes('ip')) {
+                        toastError('This exam is not accessible from your current network');
+                        setIsLoading(false);
+                        return;
                     }
                 }
 
@@ -566,6 +576,13 @@ export default function PublicExamPage() {
                     window.location.href = `/exam/login?slug=${slug}&error=suspended`;
                     return; // Keep loading visible
                 }
+                if (error.status === 403 || error.message?.toLowerCase().includes('ip') || error.message?.includes('Access from your IP')) {
+                    // IP restriction – show message and stop
+                    toastError(error.message || 'You are not permitted to access this exam from your current network');
+                    setIsLoading(false);
+                    return;
+                }
+
                 if (error.message?.includes('401') || error.message?.includes('Unauthorized') || error.message?.includes('Failed to start exam')) {
                     window.location.href = `/exam/login?slug=${slug}`;
                     return; // Keep loading visible

@@ -25,18 +25,18 @@ export class ExamController {
     }
 
     @Get(':slug/public-status')
-    async getPublicStatus(@Param('slug') slug: string) {
-        // console.log('[ExamController] getPublicStatus slug:', slug);
-        return this.examService.getPublicStatus(slug);
+    async getPublicStatus(@Param('slug') slug: string, @Req() req: any) {
+        // console.log('[ExamController] getPublicStatus slug:', slug, 'from', req.ip);
+        return this.examService.getPublicStatus(slug, req.ip);
     }
 
     @Get(':slug/check')
-    async checkExam(@Param('slug') slug: string, @Query('json') json: string) {
+    async checkExam(@Param('slug') slug: string, @Query('json') json: string, @Req() req: any) {
         // Require ?json=1 parameter
         if (!json) {
             return { error: 'json=1 parameter required' };
         }
-        return this.examService.checkExamStatus(slug);
+        return this.examService.checkExamStatus(slug, req.ip);
     }
 
     // Protected Routes

@@ -560,7 +560,20 @@ export default function ExamBuilder({ initialData, onDelete, basePath, userRole,
                                         <div className="space-y-1.5">
                                             <div className="flex items-center justify-between">
                                                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Allowed IP Addr</label>
-                                                <button className="text-[8px] font-black uppercase text-[var(--brand)] hover:underline">Copy My IP</button>
+                                                <button
+                                                    className="text-[8px] font-black uppercase text-[var(--brand)] hover:underline"
+                                                    onClick={async () => {
+                                                        try {
+                                                            const resp = await fetch('https://api.ipify.org?format=json');
+                                                            const data = await resp.json();
+                                                            if (data.ip) {
+                                                                setExam(prev => ({ ...prev, allowedIPs: data.ip }));
+                                                            }
+                                                        } catch (err) {
+                                                            console.warn('Unable to fetch public IP', err);
+                                                        }
+                                                    }}
+                                                >Copy My IP</button>
                                             </div>
                                             <input
                                                 type="text"
@@ -569,6 +582,7 @@ export default function ExamBuilder({ initialData, onDelete, basePath, userRole,
                                                 value={exam.allowedIPs}
                                                 onChange={(e) => setExam(prev => ({ ...prev, allowedIPs: e.target.value }))}
                                             />
+                                            <p className="text-[9px] text-slate-400">Separate multiple addresses with commas or spaces.</p>
                                         </div>
 
                                         <div className="space-y-1.5">
