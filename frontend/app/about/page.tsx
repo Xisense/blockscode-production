@@ -48,6 +48,7 @@ export default function AboutPage() {
             <WhyThisMatters />
             <OurBacking />
         </div>
+        
     )
 }
 
